@@ -1,5 +1,20 @@
 Revision history for Perl extension Win32::IPConfig.
 
+** 0.08 2004-08-13
+
+Documented the following Win32::IPConfig methods:
+    is_router
+    is_wins_proxy
+    is_lmhosts_enabled
+    is_dns_enabled_for_netbt
+
+Updated the synopsis to include these methods.
+
+Updated the three examples in the Win32::IPConfig documentation.
+
+Updated the README file description to show that NT/2000/XP/2003
+is supported and that read and write access is required to the registry.
+
 ** 0.07 2004-08-11
 
 Updated to support Windows Server 2003. All methods in Win32::IPConfig and

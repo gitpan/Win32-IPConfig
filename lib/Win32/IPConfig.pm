@@ -4,7 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 
-our $VERSION = '0.07';
+our $VERSION = '0.08';
 
 use Carp;
 use Win32::TieRegistry qw/:KEY_/;
@@ -150,21 +150,6 @@ sub get_searchlist
     return wantarray ? @searchlist : \@searchlist;
 }
 
-# Value: IPEnableRouter (REG_DWORD)
-# NT:    Tcpip\Parameters
-# 2000+: Tcpip\Parameters
-
-sub is_router
-{
-    my $self = shift;
-
-    if (my $router = $self->{"tcpip_params_key"}{"\\IPEnableRouter"}) {
-        return hex($router);
-    } else {
-        return 0; # defaults to 0
-    }
-}
-
 # Value: NodeType (REG_DWORD)
 # NT:    Netbt\Parameters
 # 2000+: Netbt\Parameters
@@ -209,6 +194,21 @@ sub get_nodetype
         $nodetype = $wins_count ? 8 : 1;
     }
     return $nodetypes{$nodetype};
+}
+
+# Value: IPEnableRouter (REG_DWORD)
+# NT:    Tcpip\Parameters
+# 2000+: Tcpip\Parameters
+
+sub is_router
+{
+    my $self = shift;
+
+    if (my $router = $self->{"tcpip_params_key"}{"\\IPEnableRouter"}) {
+        return hex($router);
+    } else {
+        return 0; # defaults to 0
+    }
 }
 
 # Value: EnableProxy (REG_DWORD)
@@ -282,8 +282,8 @@ sub dump
     print "domain=", $self->get_domain, "\n";
     my @searchlist = $self->get_searchlist;
     print "searchlist=@searchlist (", scalar @searchlist, ")\n";
-    print "ip router enabled=", $self->is_router ? "Yes":"No", "\n";
     print "nodetype=", $self->get_nodetype, "\n";
+    print "ip router enabled=", $self->is_router ? "Yes":"No", "\n";
     print "wins proxy enabled=", $self->is_wins_proxy ? "Yes":"No", "\n";
     print "LMHOSTS enabled=", $self->is_lmhosts_enabled ? "Yes":"No", "\n";
     print "dns enabled for netbt=", $self->is_dns_enabled_for_netbt ? "Yes":"No", "\n";
@@ -309,22 +309,35 @@ Win32::IPConfig - IP Configuration Settings for Windows NT/2000/XP/2003
     $host = shift || "";
     if ($ipconfig = Win32::IPConfig->new($host)) {
         print "hostname=", $ipconfig->get_hostname, "\n";
+
         print "domain=", $ipconfig->get_domain, "\n";
+
+        my @searchlist = $ipconfig->get_searchlist;
+        print "searchlist=@searchlist (", scalar @searchlist, ")\n";
+
         print "nodetype=", $ipconfig->get_nodetype, "\n";
 
-        foreach $adapter ($ipconfig->get_adapters) {
-            print "\nAdapter '";
-            print $adapter->get_name, "':\n";
-            print $adapter->get_description, "\n";
+        print "IP routing enabled=", $ipconfig->is_router ? "Yes" : "No", "\n";
 
-            if ($adapter->is_dhcp_enabled) {
-                print "DHCP is enabled\n";
-            } else {
-                print "DHCP is not enabled\n";
-            }
+        print "WINS proxy enabled=",
+            $ipconfig->is_wins_proxy ? "Yes" : "No", "\n";
+
+        print "LMHOSTS enabled=",
+            $ipconfig->is_lmhosts_enabled ? "Yes" : "No", "\n";
+
+        print "DNS enabled for netbt=",
+            $ipconfig->is_dns_enabled_for_netbt ? "Yes" : "No", "\n"; 
+
+        foreach $adapter ($ipconfig->get_adapters) {
+            print "\nAdapter '", $adapter->get_name, "':\n";
+
+            print "Description=", $adapter->get_description, "\n";
+
+            print "DHCP enabled=",
+                $adapter->is_dhcp_enabled ? "Yes" : "No", "\n";
 
             @ipaddresses = $adapter->get_ipaddresses;
-            print "ip addresses=@ipaddresses (", scalar @ipaddresses, ")\n";
+            print "IP addresses=@ipaddresses (", scalar @ipaddresses, ")\n";
 
             @subnet_masks = $adapter->get_subnet_masks;
             print "subnet masks=@subnet_masks (", scalar @subnet_masks, ")\n";
@@ -370,6 +383,13 @@ For machines running Windows 2000 or later
 (which can have connection-specific domain name suffixes for each adapter)
 this is the primary domain name for the machine.
 
+=item $ipconfig->get_searchlist
+
+Returns a list of domain name suffixes added during
+DNS name resolution.
+They are only used if the initial DNS name lookup fails.
+(Returns a reference to a list in a scalar context.)
+
 =item $ipconfig->get_nodetype
 
 Returns the NetBIOS over TCP/IP node type of the machine. 
@@ -382,6 +402,42 @@ The four possible node types are:
 
 Windows defaults to B-node if no WINS servers are configured,
 and defaults to H-node if there are.
+
+=item $ipconfig->is_router
+
+Returns 1 if the host is configured to route packets between its network
+adapters; returns 0 if it is not. Only applicable to machines with
+more than one adapter. By default, this is set to 0 (no routing).
+
+=item $ipconfig->is_wins_proxy
+
+Returns 1 if the host is configured to be a WINS proxy for NetBIOS over TCP/IP
+name resolution; returns 0 if it is not.
+By default, this is set to 0 (do not act as a WINS proxy).
+A WINS proxy will answer broadcast name queries it detects on its subnet.
+It is only required in networks where there are hosts that cannot be
+configured to use WINS servers.
+
+=item $ipconfig->is_lmhosts_enabled
+
+Returns 1 if the host is configured to use the LMHOSTS file for NetBIOS over
+TCP/IP name resolution; returns 0 if it is not.
+By default, this is set to 1 (use LMHOSTS).
+The LMHOSTS file does not exist unless created by an administrator
+at %SystemRoot%\system32\drivers\etc\LMHOSTS.
+
+=item $ipconfig->is_dns_enabled_for_netbt
+
+Returns 1 if the host is configured to use DNS for NetBIOS over TCP/IP name
+resolution; returns 0 if it is not.
+By default, this is set to 0 (do not use DNS).
+DNS will only be used for NetBIOS over TCP/IP name resolution
+after all standard methods have failed (cache, WINS, broadcast, LMHOSTS).
+
+This setting has little relevance to Windows 2000 and later,
+as these operating systems were designed to work without WINS servers
+and already use DNS (through "direct hosting")
+to resolve Windows computer names.
 
 =item $ipconfig->get_adapters
 
@@ -437,7 +493,19 @@ do not have IP addresses.
 
     print "Host Name. . . . . . . . . . . . : ", $ipconfig->get_hostname, "\n";
     print "Domain Name (Primary). . . . . . : ", $ipconfig->get_domain, "\n";
+    my @searchlist = $ipconfig->get_searchlist;
+    print "Search List. . . . . . . . . . . : $searchlist[0]\n";
+    print "                                   $searchlist[$_]\n"
+        for (1..@searchlist-1);
     print "Node Type  . . . . . . . . . . . : ", $ipconfig->get_nodetype, "\n";
+    print "IP Routing Enabled . . . . . . . : ",
+        $ipconfig->is_router ? "Yes" : "No", "\n";
+    print "WINS Proxy Enabled . . . . . . . : ",
+        $ipconfig->is_wins_proxy ? "Yes" : "No", "\n";
+    print "LMHOSTS Enabled. . . . . . . . . : ",
+        $ipconfig->is_lmhosts_enabled ? "Yes" : "No", "\n";
+    print "DNS Enabled for NetBT. . . . . . : ",
+        $ipconfig->is_dns_enabled_for_netbt ? "Yes" : "No", "\n";
 
     for my $adapter ($ipconfig->get_configured_adapters) {
         print "\nAdapter '", $adapter->get_name, "':\n\n";
@@ -472,6 +540,7 @@ This example outputs data in CSV format with the hostname and domain followed
 by the IP configuration settings for the first adapter. (Additional adapters
 are ignored.)
 
+    use strict;
     use Win32::IPConfig;
 
     print "hostname,domain,";
@@ -479,25 +548,25 @@ are ignored.)
 
     while (<DATA>) {
         chomp;
-        $ipconfig = Win32::IPConfig->new($_);
-        print $ipconfig->get_hostname, ",";
-        print $ipconfig->get_domain, ",";
+        if (my $ipconfig = Win32::IPConfig->new($_)) {
+            print $ipconfig->get_hostname, ",";
+            print $ipconfig->get_domain, ",";
 
-        if (@adapters = $ipconfig->get_adapters) {
-            $adapter = $adapters[0];
-            print $adapter->is_dhcp_enabled ? "Y," : "N,";
-            @ipaddresses = $adapter->get_ipaddresses;
-            print "@ipaddresses,";
-            @subnet_masks = $adapter->get_subnet_masks;
-            print "@subnet_masks,";
-            @gateways = $adapter->get_gateways;
-            print "@gateways,";
-            @dns = $adapter->get_dns;
-            print "@dns,";
-            @wins = $adapter->get_wins;
-            print "@wins";
+            if (my $adapter = $ipconfig->get_adapter(0)) {
+                print $adapter->is_dhcp_enabled ? "Y," : "N,";
+                my @ipaddresses = $adapter->get_ipaddresses;
+                print "@ipaddresses,";
+                my @subnet_masks = $adapter->get_subnet_masks;
+                print "@subnet_masks,";
+                my @gateways = $adapter->get_gateways;
+                print "@gateways,";
+                my @dns = $adapter->get_dns;
+                print "@dns,";
+                my @wins = $adapter->get_wins;
+                print "@wins";
+            }
+            print "\n";
         }
-        print "\n";
     }
 
     __DATA__
@@ -511,13 +580,30 @@ This example demonstrates how you can change the DNS servers set on a remote
 host. It reads the target machine name and the IP addresses for the DNS servers
 from the command line.
 
+    use strict;
     use Win32::IPConfig;
 
-    my $host = shift;
-    my $ipconfig = Win32::IPConfig->new($host);
-    my @dns = @ARGV;
-    my $adapter = $ipconfig->get_adapter(0);
-    $adapter->set_dns(@dns);
+    my $host = shift or die "You must specify a host\n";
+    if (my $ipconfig = Win32::IPConfig->new($host)) {
+        if (my $adapter = $ipconfig->get_adapter("Local Area Connection") ||
+                          $ipconfig->get_adapter(0)) {
+            if (! $adapter->is_dhcp_enabled) {
+                $adapter->set_dns(@ARGV);
+                my @dns = $adapter->get_dns;
+                if (@dns) {
+                    print "Set to @dns\n";
+                } else {
+                    print "Cleared\n";
+                }
+            } else {
+                warn "Adapter is configured for DHCP\n";
+            }
+        } else {
+            warn "Could not find an adapter to configure\n";
+        }
+    } else {
+        warn "Host '$host' does not appear to be up\n";
+    }
 
 =head1 REGISTRY KEYS USED
 
@@ -538,7 +624,7 @@ For all operating systems, the main keys are:
     Tcpip\Parameters
     Netbt\Parameters
 
-Adapter-specific settings are stored in:
+Adapter-specific TCP/IP settings are stored in:
 
     <adapter_id>\Parameters\Tcpip (Windows NT)
     Tcpip\Parameters\Interfaces\<adapter_id> (Windows 2000 and later)
@@ -550,9 +636,9 @@ NetBIOS over TCP/IP stores adapter-specific settings in:
 
 =head1 NOTES
 
-Windows 2000 and later will use its DNS server setting to resolve
-Windows computer names, whereas Windows NT will use its WINS server
-settings first.
+Windows 2000 and later will use DNS and WINS to resolve Windows computer names,
+whereas Windows NT will use WINS and only use DNS if configured to do so (see
+the is_dns_enabled_for_netbt method).
 
 For Windows 2000 and later, both the primary and connection-specific domain
 settings are significant and will be used in this initial name 
