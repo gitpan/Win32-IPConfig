@@ -4,7 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 
-our $VERSION = '0.06';
+our $VERSION = '0.07';
 
 use Carp;
 use Win32::TieRegistry qw/:KEY_/;
@@ -18,28 +18,27 @@ sub new
 
     my $hklm = $Registry->Connect($host, "HKEY_LOCAL_MACHINE",
         {Access => KEY_READ | KEY_WRITE})
+        #{Access => KEY_READ})
         or return undef;
 
     $hklm->SplitMultis(1); # return REG_MULTI_SZ as arrays
 
-    my $osversion = $hklm->{"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\CurrentVersion"};
-
-    unless ($osversion eq "4.0" || $osversion eq "5.0" || $osversion eq "5.1") {
-        croak "Currently only supports Windows NT/2000/XP";
-    }
-
-    my $services = $hklm->{"SYSTEM\\CurrentControlSet\\Services"};
+    my $osversion = $hklm->{"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\\\CurrentVersion"} or return undef;
 
     my $self = {};
     $self->{"osversion"} = $osversion;
 
     # Remember the necessary registry keys
-    $self->{"netbtparams"} = $services->{"Netbt\\Parameters"};
-    $self->{"tcpipparams"} = $services->{"Tcpip\\Parameters"};
+    my $services_key = $hklm->{"SYSTEM\\CurrentControlSet\\Services\\"}
+        or return undef;
+    $self->{"netbt_params_key"} = $services_key->{"Netbt\\Parameters\\"}
+        or return undef;
+    $self->{"tcpip_params_key"} = $services_key->{"Tcpip\\Parameters\\"}
+        or return undef;
 
     # Retrieve each network card's config
-    my $networkcards = $hklm->{"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\NetworkCards"};
-    for my $nic ($networkcards->SubKeyNames) {
+    my $networkcards_key = $hklm->{"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\NetworkCards\\"} or return undef;
+    for my $nic ($networkcards_key->SubKeyNames) {
         if (my $adapter = Win32::IPConfig::Adapter->new($hklm, $nic)) {
             push @{$self->{"adapters"}}, $adapter;
         }
@@ -54,96 +53,225 @@ sub get_adapters
     return wantarray ? @{$_[0]->{"adapters"}} : $_[0]->{"adapters"};
 }
 
+sub get_configured_adapters
+{
+    my @adapters = ();
+    for my $adapter (@{$_[0]->{"adapters"}}) {
+        if (my @ipaddresses = $adapter->get_ipaddresses) {
+            push @adapters, $adapter unless $ipaddresses[0] eq "0.0.0.0";
+        }
+    }
+    return wantarray ? @adapters : \@adapters;
+}
+
 sub get_osversion { return $_[0]->{"osversion"}; }
+
+# Value: Hostname (REG_SZ)
+# NT:    Tcpip\Parameters
+# 2000+: Tcpip\Parameters
+
+# Value: NV Hostname (REG_SZ)
+# 2000+: Tcpip\Parameters
 
 sub get_hostname
 {
     my $self = shift;
 
-    return $self->{"tcpipparams"}{"Hostname"};
+    return $self->{"tcpip_params_key"}{"\\Hostname"};
 }
+
+# Value: Domain (REG_SZ)
+# NT:    Tcpip\Parameters
+# 2000+: Tcpip\Parameters (primary)
+# 2000+: Tcpip\Parameters\Interfaces\<adapter> (connection-specific)
+
+# Value: NV Domain (REG_SZ)
+# 2000+: Tcpip\Parameters
+
+# Value: DhcpDomain (REG_SZ)
+# NT:    Tcpip\Parameters
+# 2000+: Tcpip\Parameters
+# 2000+: Tcpip\Parameters\Interfaces\<adapter> (connection-specific)
+
+# How do you know when to read the Domain value and when to read the DhcpDomain
+# value? The Domain and DhcpDomain values are attributes of a host, but
+# the EnableDHCP value is an attribute of an adapter.
+
+# On Windows NT 4.0, when I set the adapter to static, the DhcpDomain
+# setting disappears from the registry to leave only the empty Domain setting.
+# This also appears to be the case on Windows XP.
+
+# What happens when Domain setting is set statically and an adapter card adds a
+# DhcpDomain setting as well - i.e. when both Domain and DhcpDomain exist?
+
+# On Windows NT 4.0, when I set the adapter to dynamic and set a static domain
+# setting, the static domain setting is returned by ipconfig /all while both
+# settings exist in the registry.
+
+# This suggests: return the Domain setting if it is non-empty. Otherwise
+# return the DhcpDomain if it is present. Otherwise, return an empty string.
 
 sub get_domain
 {
     my $self = shift;
 
-    return $self->{"tcpipparams"}{"Domain"};
+    my $domain = $self->{"tcpip_params_key"}{"\\Domain"};
+    if (! $domain) {
+        $domain = $self->{"tcpip_params_key"}{"\\DhcpDomain"} || "";
+    }
+    return $domain;
 }
+
+# Value: SearchList (REG_SZ) (space delimited on NT, comma delimited on 2000+)
+# NT:    Tcpip\Parameters
+# 2000+: Tcpip\Parameters
+
+# The Windows 2000 Advanced TCP/IP Settings dialog gives you the choice of
+# resolving unqualified names by:
+# 1. appending primary and connection specific DNS suffixes
+# 2. appending a user-specified list of DNS suffixes
+# It appears to choose between each method simply by seeing if
+# SearchList is set or not: if it is set, use it, otherwise append
+# the primary and connection specific DNS suffixes.
+
+# The Windows NT Microsoft TCP/IP Properties dialog simply allows you
+# the option of specifying a domain suffix search order.
 
 sub get_searchlist
 {
     my $self = shift;
 
     my @searchlist;
-    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
-        @searchlist = split /,/, $self->{"tcpipparams"}{"SearchList"};
+    if ($self->{"osversion"} >= 5.0) {
+        @searchlist = split /,/, $self->{"tcpip_params_key"}{"\\SearchList"};
     } else {
-        @searchlist = split / /, $self->{"tcpipparams"}{"SearchList"};
+        @searchlist = split / /, $self->{"tcpip_params_key"}{"\\SearchList"};
     }
     return wantarray ? @searchlist : \@searchlist;
 }
 
-sub get_nodetype
-{
-    my $self = shift;
-
-    # Got a real problem here. How can I determine whether to
-    # use DhcpNodeType or NodeType given that being DHCP enabled
-    # is a property of an adapter, not a host?
-    # So I currently settled for always reporting the statically
-    # configured NodeType setting, even though this will be invalid
-    # if there are DHCP adapters.
-
-    my %nodetypes = (1=>"B-node", 2=>"P-node", 4=>"M-node", 8=>"H-node");
-    my $nodetype;
-    if ($nodetype = $self->{"netbtparams"}{"NodeType"}) {
-        $nodetype = hex($nodetype);
-        return $nodetypes{$nodetype};
-    } else {
-        return "";
-    }
-}
+# Value: IPEnableRouter (REG_DWORD)
+# NT:    Tcpip\Parameters
+# 2000+: Tcpip\Parameters
 
 sub is_router
 {
     my $self = shift;
 
-    if (my $router = $self->{"tcpipparams"}{"IPEnableRouter"}) {
+    if (my $router = $self->{"tcpip_params_key"}{"\\IPEnableRouter"}) {
         return hex($router);
     } else {
         return 0; # defaults to 0
     }
 }
 
+# Value: NodeType (REG_DWORD)
+# NT:    Netbt\Parameters
+# 2000+: Netbt\Parameters
+
+# Value: DhcpNodeType (REG_DWORD) (overidden by NodeType)
+# NT:    Netbt\Parameters
+# 2000+: Netbt\Parameters
+
+# On Windows NT 4.0, if the adapter receives a DhcpNodeType setting from the
+# DHCP server, the DhcpNodeType setting is present. Otherwise neither the
+# NodeType nor the DhcpNodeType setting is present. When neither setting is
+# present, Windows NT 4.0 reports "Node Type = Broadcast".
+
+# According to the Q120642 and Q314053 the NodeType setting will override the
+# DhcpNodeType setting.
+
+# This suggests: use the NodeType value if set. Otherwise check for a
+# DhcpNodeType setting. If there is no DhcpNodeType make a stab at getting the
+# default NodeType. Check all the adapters present for WINS settings. If there
+# are any set, then return H-node, else return B-node.
+
+sub get_nodetype
+{
+    my $self = shift;
+
+    my %nodetypes = (1=>"B-node", 2=>"P-node", 4=>"M-node", 8=>"H-node");
+
+    # Windows NT 4.0's ipconfig reports these node types as
+    # Broadcast, Peer-Peer, Mixed, Hybrid
+
+    my $nodetype;
+    if (my $type = $self->{"netbt_params_key"}{"\\NodeType"}) {
+        $nodetype = hex($type);
+    } elsif ($type = $self->{"netbt_params_key"}{"\\DhcpNodeType"}) {
+        $nodetype = hex($type)
+    } else {
+        my $wins_count = 0;
+        for my $adapter ($self->get_adapters) {
+            my @wins = $adapter->get_wins;
+            $wins_count += @wins;
+        }
+        $nodetype = $wins_count ? 8 : 1;
+    }
+    return $nodetypes{$nodetype};
+}
+
+# Value: EnableProxy (REG_DWORD)
+# NT:    Netbt\Parameters
+# 2000+: Netbt\Parameters
+
 sub is_wins_proxy
 {
     my $self = shift;
 
-    if (my $proxy = $self->{"netbtparams"}{"EnableProxy"}) {
+    if (my $proxy = $self->{"netbt_params_key"}{"\\EnableProxy"}) {
         return hex($proxy);
     } else {
         return 0; # defaults to 0
     }
 }
 
+# Value: EnableLMHOSTS (REG_DWORD)
+# NT:    Netbt\Parameters
+# 2000+: Netbt\Parameters
+
 sub is_lmhosts_enabled
 {
     my $self = shift;
 
-    if (my $lmhosts_enabled = $self->{"netbtparams"}{"EnableLMHOSTS"}) {
+    if (my $lmhosts_enabled = $self->{"netbt_params_key"}{"\\EnableLMHOSTS"}) {
         return hex($lmhosts_enabled);
     } else {
         return 1; # defaults to 1
     }
 }
 
+# Value: EnableDns (REG_DWORD)
+# NT:    Netbt\Parameters
+# 2000+: Netbt\Parameters
+
+sub is_dns_enabled_for_netbt
+{
+    my $self = shift;
+
+    if (my $dns_enabled_for_netbt = $self->{"netbt_params_key"}{"\\EnableDns"}) {
+        return hex($dns_enabled_for_netbt);
+    } else {
+        return 0; # defaults to 0
+    }
+}
+
 sub get_adapter
 {
     my $self = shift;
-    my $adapter_num = shift;
+    my $adapter_name_or_num = shift;
 
-    my $adapter = $self->{"adapters"}[$adapter_num];
-    return $adapter;
+    if ($adapter_name_or_num =~ m/^\d+$/) {
+        my $adapter = $self->{"adapters"}[$adapter_name_or_num];
+        return $adapter;
+    } else {
+        for my $adapter ($self->get_adapters) {
+            if ($adapter->get_name =~ m/$adapter_name_or_num/i) {
+                return $adapter;
+            }
+        }
+        return undef; # couldn't find a matching adapter.
+    }
 }
 
 sub dump
@@ -152,158 +280,27 @@ sub dump
 
     print "hostname=", $self->get_hostname, "\n";
     print "domain=", $self->get_domain, "\n";
-    print "nodetype=", $self->get_nodetype, "\n";
-    print "ip routing enabled=", $self->is_router ? "Yes":"No", "\n";
-    print "wins proxy enabled=", $self->is_wins_proxy ? "Yes":"No", "\n";
-    print "LMHOSTS enabled=", $self->is_lmhosts_enabled ? "Yes":"No", "\n";
     my @searchlist = $self->get_searchlist;
     print "searchlist=@searchlist (", scalar @searchlist, ")\n";
-    my $i = 1;
+    print "ip router enabled=", $self->is_router ? "Yes":"No", "\n";
+    print "nodetype=", $self->get_nodetype, "\n";
+    print "wins proxy enabled=", $self->is_wins_proxy ? "Yes":"No", "\n";
+    print "LMHOSTS enabled=", $self->is_lmhosts_enabled ? "Yes":"No", "\n";
+    print "dns enabled for netbt=", $self->is_dns_enabled_for_netbt ? "Yes":"No", "\n";
+    my $i = 0;
     for ($self->get_adapters) {
-        print "\nCard ", $i++, ":\n";
+        print "\nAdapter ", $i++, ":\n";
         $_->dump;
     }
 }
 
 1;
 
-# IP Address Information
-
-# Value:   IPAddress (REG_MULTI_SZ)
-# NT:      <adapter>\Parameters\Tcpip
-# 2000/XP: <adapter>\Parameters\Tcpip
-# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
-
-# Value:   SubnetMask (REG_MULTI_SZ)
-# NT:      <adapter>\Parameters\Tcpip
-# 2000/XP: <adapter>\Parameters\Tcpip
-# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
-
-# Value:   DefaultGateway (REG_MULTI_SZ)
-# NT:      <adapter>\Parameters\Tcpip
-# 2000/XP: <adapter>\Parameters\Tcpip
-# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
-
-# Value:   IPEnableRouter (REG_DWORD)
-# NT:      Tcpip\Parameters
-# 2000/XP: Tcpip\Parameters
-
-# Value:   EnableDHCP (REG_DWORD)
-# NT:      <adapter>\Parameters\Tcpip
-# 2000/XP: <adapter>\Parameters\Tcpip
-# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
-
-# Value:   DhcpIPAddress (REG_SZ)
-# NT:      <adapter>\Parameters\Tcpip
-# 2000/XP: <adapter>\Parameters\Tcpip
-# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
-
-# Value:   DhcpSubnetMask (REG_SZ)
-# NT:      <adapter>\Parameters\Tcpip
-# 2000/XP: <adapter>\Parameters\Tcpip
-# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
-
-# Value:   DhcpDefaultGateway (REG_MULTI_SZ)
-# NT:      <adapter>\Parameters\Tcpip
-# 2000/XP: <adapter>\Parameters\Tcpip
-# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
-
-# Value:   DhcpServer (REG_SZ)
-# NT:      <adapter>\Parameters\Tcpip
-# 2000/XP: <adapter>\Parameters\Tcpip
-# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
-
-# Value:   LeaseObtainedTime (REG_DWORD)
-# NT:      <adapter>\Parameters\Tcpip
-# 2000/XP: <adapter>\Parameters\Tcpip
-# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
-
-# Value:   LeaseTerminatesTime (REG_DWORD)
-# NT:      <adapter>\Parameters\Tcpip
-# 2000/XP: <adapter>\Parameters\Tcpip
-# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
-
-# DNS Information
-
-# Value:   Hostname (REG_SZ)
-# NT:      Tcpip\Parameters
-# 2000/XP: Tcpip\Parameters
-
-# Value:   NV Hostname (REG_SZ)
-# 2000/XP: Tcpip\Parameters
-
-# Value:   Domain (REG_SZ)
-# NT:      Tcpip\Parameters
-# 2000/XP: Tcpip\Parameters (primary)
-# 2000/XP: Tcpip\Parameters\Interfaces\<adapter> (connection-specific)
-
-# Value:   NV Domain (REG_SZ)
-# 2000/XP: Tcpip\Parameters
-
-# Value:   NameServer (REG_SZ) (a space delimited list)
-# NT:      Tcpip\Parameters
-# 2000/XP: Tcpip\Parameters (although it was blank; is it used?)
-# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
-
-# Value:   SearchList (REG_SZ) (space delimited on NT, comma delimited on 2000)
-# NT:      Tcpip\Parameters
-# 2000/XP: Tcpip\Parameters
-
-# Value:   DhcpDomain (REG_SZ)
-# NT:      *still to be determined*
-# 2000/XP: Tcpip\Parameters
-# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
-
-# Value:   DhcpNameServer (REG_SZ) (a space delimited list)
-# NT:      Tcpip\Parameters
-# 2000/XP: Tcpip\Parameters (same as below)
-# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
-
-# WINS Information
-
-# Value:   NameServer (REG_SZ)
-# NT:      Netbt\Adapters\<adapter>
-
-# Value:   NameServerBackup (REG_SZ)
-# NT:      Netbt\Adapters\<adapter>
-
-# Value:   NameServerList (REG_MULTI_SZ)
-# 2000/XP: Netbt\Parameters\Interfaces\Tcpip_<adapter>
-
-# Value:   DhcpNameServer (REG_SZ)
-# NT:      Netbt\Adapters\<adapter>
-
-# Value:   DhcpNameServerBackup (REG_SZ)
-# NT:      Netbt\Adapters\<adapter>
-
-# Value:   DhcpNameServerList (REG_MULTI_SZ)
-# 2000/XP: Netbt\Parameters\Interfaces\Tcpip_<adapter>
-
-# Q120642 and Q314053 talk about NameServer and NameServerBackup
-# existing on 2000 in the Netbt\Parameters\Interfaces\Tcpip_<adapter>
-# registry key, but this appears to be wrong.
-
-# Value:   NodeType (REG_DWORD)
-# NT:      Netbt\Parameters
-# 2000/XP: Netbt\Parameters
-
-# Value:   DhcpNodeType (REG_DWORD) (overidden by NodeType)
-# NT:      Netbt\Parameters
-# 2000/XP: Netbt\Parameters
-
-# Value:   EnableProxy (REG_DWORD)
-# NT:      Netbt\Parameters
-# 2000/XP: Netbt\Parameters
-
-# Value:   EnableLMHOSTS (REG_DWORD)
-# NT:      Netbt\Parameters
-# 2000/XP: Netbt\Parameters
-
 __END__
 
 =head1 NAME
 
-Win32::IPConfig - Windows NT/2000/XP IP Configuration Settings
+Win32::IPConfig - IP Configuration Settings for Windows NT/2000/XP/2003
 
 =head1 SYNOPSIS
 
@@ -316,8 +313,8 @@ Win32::IPConfig - Windows NT/2000/XP IP Configuration Settings
         print "nodetype=", $ipconfig->get_nodetype, "\n";
 
         foreach $adapter ($ipconfig->get_adapters) {
-            print "\nAdapter ";
-            print $adapter->get_id, "\n";
+            print "\nAdapter '";
+            print $adapter->get_name, "':\n";
             print $adapter->get_description, "\n";
 
             if ($adapter->is_dhcp_enabled) {
@@ -348,9 +345,9 @@ Win32::IPConfig - Windows NT/2000/XP IP Configuration Settings
 =head1 DESCRIPTION
 
 Win32::IPConfig is a module for retrieving TCP/IP network settings from a
-Windows NT/2000/XP host machine. Specify the host and the module will retrieve
-and collate all the information from the specified machine's registry (using
-Win32::TieRegistry). For this module to retrieve information from a host
+Windows NT/2000/XP/2003 host machine. Specify the host and the module will
+retrieve and collate all the information from the specified machine's registry
+(using Win32::TieRegistry). For this module to retrieve information from a host
 machine, you must have read and write access to the registry on that machine.
 
 =head1 METHODS
@@ -368,45 +365,118 @@ Returns a string containing the DNS hostname of the machine.
 
 =item $ipconfig->get_domain
 
-Returns a string containing the domain name of the machine.
-For Windows 2000/XP machines (which can have connection-specific
-domain names) this is the primary domain name.
+Returns a string containing the domain name suffix of the machine.
+For machines running Windows 2000 or later
+(which can have connection-specific domain name suffixes for each adapter)
+this is the primary domain name for the machine.
 
 =item $ipconfig->get_nodetype
 
-Returns the node type of the machine. Note that this is not always
-present. It will default to 0x1 B-node if no WINS servers are configured,
-and default to 0x8 H-node if there are. The four possible node types are:
+Returns the NetBIOS over TCP/IP node type of the machine. 
+The four possible node types are:
 
     B-node - resolve NetBIOS names by broadcast
     P-node - resolve NetBIOS names using a WINS server
     M-node - resolve NetBIOS names by broadcast, then using a WINS server
     H-node - resolve NetBIOS names using a WINS server, then by broadcast
 
-Currently this value is only reliable on statically configured hosts.
-Do not rely on this value if you have DHCP enabled adapters.
+Windows defaults to B-node if no WINS servers are configured,
+and defaults to H-node if there are.
 
 =item $ipconfig->get_adapters
 
 The real business of the module. Returns a list of
 Win32::IPConfig::Adapter objects.
 (Returns a reference to a list in a scalar context.)
-See the Adapter documentation for more information.
 
-=item $ipconfig->get_adapter($num)
+Each adapter object contains the TCP/IP network settings for an
+individual adapter.
+See the Win32::IPConfig::Adapter documentation for more information.
 
-Returns the Win32::IPConfig::Adapter specified by $num. Use
-C<$ipconfig-E<gt>get_adapter(0)> to retrieve the first adapter.
+=item $ipconfig->get_configured_adapters
+
+Returns a list of Win32::IPConfig::Adapter objects that have IP
+addresses configured, whether manually or through DHCP.
+(Returns a reference to a list in a scalar context.)
+
+=item $ipconfig->get_adapter($name_or_num)
+
+Returns the Win32::IPConfig::Adapter specified by $name_or_num. 
+If you specify a string (e.g. "Local Area Connection")
+it will look for an adapter with that name,
+otherwise it will take the adapter from the list of
+Win32::IPConfig::Adapter objects with the index value of $name_or_num.
+Use get_adapter(0) to retrieve the first adapter.
+
+You could use the following code to retrieve the adapter named
+"Local Area Connection" on Windows 2000 (or later) or the first adapter
+on Windows NT.
+
+    my $adapter = $ipconfig->get_adapter("Local Area Connection") ||
+                  $ipconfig->get_adapter(0);
 
 =back
 
 =head1 EXAMPLES
 
-=head2 Collecting IP Settings for a list of PCs
+=head2 Displaying the IP Settings for a PC
+
+This example is a variation on the code given in the synopsis; it
+prints the output in a style closer to the ipconfig command. Specify
+the target computer's name as the first command line parameter.
+
+It also uses the get_configured_adapters method to filter out adapters that
+do not have IP addresses.
 
     use Win32::IPConfig;
 
-    print "hostname,domain,dhcp?,ip addresses,subnet masks,gateways,dns servers,wins servers\n";
+    my $host = shift || Win32::NodeName;
+
+    my $ipconfig = Win32::IPConfig->new($host)
+        or die "Unable to connect to $host\n";
+
+    print "Host Name. . . . . . . . . . . . : ", $ipconfig->get_hostname, "\n";
+    print "Domain Name (Primary). . . . . . : ", $ipconfig->get_domain, "\n";
+    print "Node Type  . . . . . . . . . . . : ", $ipconfig->get_nodetype, "\n";
+
+    for my $adapter ($ipconfig->get_configured_adapters) {
+        print "\nAdapter '", $adapter->get_name, "':\n\n";
+        print "DHCP Enabled . . . . . . . . . . : ",
+            $adapter->is_dhcp_enabled ? "Yes" : "No", "\n";
+        print "Domain Name. . . . . . . . . . . : ", $adapter->get_domain, "\n";
+
+        my @ipaddresses = $adapter->get_ipaddresses;
+        my @subnet_masks = $adapter->get_subnet_masks;
+        for (0..@ipaddresses-1) {
+            print "IP Address . . . . . . . . . . . : $ipaddresses[$_]\n";
+            print "Subnet Mask. . . . . . . . . . . : $subnet_masks[$_]\n";
+        }
+
+        my @gateways = $adapter->get_gateways;
+        print "Default Gateway. . . . . . . . . : $gateways[0]\n";
+        print "                                   $gateways[$_]\n"
+            for (1..@gateways-1);
+
+        my @dns = $adapter->get_dns;
+        print "DNS Servers. . . . . . . . . . . : $dns[0]\n";
+        print "                                   $dns[$_]\n" for (1..@dns-1);
+
+        my @wins = $adapter->get_wins;
+        print "WINS Servers . . . . . . . . . . : $wins[0]\n";
+        print "                                   $wins[$_]\n" for (1..@wins-1);
+    }
+
+=head2 Collecting IP Settings for a list of PCs
+
+This example outputs data in CSV format with the hostname and domain followed
+by the IP configuration settings for the first adapter. (Additional adapters
+are ignored.)
+
+    use Win32::IPConfig;
+
+    print "hostname,domain,";
+    print "dhcp?,ip addresses,subnet masks,gateways,dns servers,wins servers\n";
+
     while (<DATA>) {
         chomp;
         $ipconfig = Win32::IPConfig->new($_);
@@ -437,6 +507,10 @@ C<$ipconfig-E<gt>get_adapter(0)> to retrieve the first adapter.
 
 =head2 Setting a PC's DNS servers
 
+This example demonstrates how you can change the DNS servers set on a remote
+host. It reads the target machine name and the IP addresses for the DNS servers
+from the command line.
+
     use Win32::IPConfig;
 
     my $host = shift;
@@ -450,19 +524,15 @@ C<$ipconfig-E<gt>get_adapter(0)> to retrieve the first adapter.
 IP configuration information is stored in a number of registry keys under
 HKLM\SYSTEM\CurrentControlSet\Services.
 
-To access adapter-specific configuration information, you need the adapter id,
+To find adapter-specific configuration information, you need the adapter id,
 which can be found by examining the list of installed network cards at
 HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkCards.
 
-Note that in NT the adapter id will look like a service or driver, while in
-2000/XP it will be a GUID.
+Note that on Windows NT the adapter id will look like a service or driver,
+while on Windows 2000 and later it will be a GUID.
 
-There are some variations in where Windows NT and Windows 2000/XP store TCP/IP
-configuration data. This is shown in the following lists. Note that Windows
-2000/XP sometimes stores data in the old adapter-specific location as well as
-the new 2000/XP adapter-specific location. In these cases, the module will read
-the data from the new registry location.
-
+There are some variations in where the 
+TCP/IP configuration data is stored.
 For all operating systems, the main keys are:
 
     Tcpip\Parameters
@@ -470,17 +540,17 @@ For all operating systems, the main keys are:
 
 Adapter-specific settings are stored in:
 
-    <adapter>\Parameters\Tcpip (Windows NT)
-    Tcpip\Parameters\Interfaces\<adapter> (Windows 2000/XP)
+    <adapter_id>\Parameters\Tcpip (Windows NT)
+    Tcpip\Parameters\Interfaces\<adapter_id> (Windows 2000 and later)
 
 NetBIOS over TCP/IP stores adapter-specific settings in:
 
-    Netbt\Adapters\<adapter> (on Windows NT)
-    Netbt\Parameters\Interfaces\Tcpip_<adapter> (on Windows 2000/XP)
+    Netbt\Adapters\<adapter_id> (Windows NT)
+    Netbt\Parameters\Interfaces\Tcpip_<adapter_id> (Windows 2000 and later)
 
 =head1 NOTES
 
-Note that Windows 2000 and later will use its DNS server setting to resolve
+Windows 2000 and later will use its DNS server setting to resolve
 Windows computer names, whereas Windows NT will use its WINS server
 settings first.
 

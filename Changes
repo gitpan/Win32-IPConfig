@@ -1,5 +1,72 @@
 Revision history for Perl extension Win32::IPConfig.
 
+** 0.07 2004-08-11
+
+Updated to support Windows Server 2003. All methods in Win32::IPConfig and
+Win32::IPConfig::Adapter now test for osversion >= 5.0 rather than just 5.0 or
+5.1. For the moment, it assumes that operating systems after Windows 2000 use
+the same TCP/IP registry locations introduced with Windows 2000.
+
+Added the get_name method to Win32::IPConfig::Adapter. Returns the name
+of the network card as it appears in Network Connections on Windows 2000
+and later. On Windows NT it falls back to returning the service name.
+
+Updated the get_adapter method of Win32::IPConfig to allow the name
+of the adapter to be specified as an alternative to its index number.
+So now get_adapter("Local Area Connection") can be used on
+Windows 2000 and later. It will accept the service name for adapters on
+Windows NT systems, although this isn't as useful.
+
+Fixed an error in the Win32::IPConfig::Adapter set_domain method:
+it now accepts "-" as a valid domain character.
+
+The get_nodetype method of Win32::IPConfig now attempts to determine the 
+nodetype of the host. It uses the NodeType value if present; if not, it uses
+the DhcpNodeType value; if neither are present, it returns the default value
+of "Hybrid" H-node for machines with WINS servers set, or "Broadcast" B-node
+for machines with no WINS servers set. Previously get_nodetype would have
+returned only the setting in the NodeType value.
+
+The get_domain method of Win32::IPConfig now returns the host's DhcpDomain
+value if the Domain value is not set. This seems to match up with experiments
+in determining how these settings are actually used. Previously get_domain
+would have returned the host's (statically configured) Domain value in all
+cases.
+
+Similarly, the get_domain method of Win32::IPConfig::Adapter now returns the
+host's DhcpDomain value for a DHCP enabled adapter on Windows NT 4.0.
+Previously it would have returned the host's (statically configured) Domain
+value whether the adapter was DHCP enabled or not. On Windows 2000 and later,
+it continues to return the adapter's own Domain or DhcpDomain value depending
+on the adapter's DHCP setting.
+
+All registry keys and values required by the module are now checked for
+defined-ness, and both Win32::IPConfig and Win32::IPConfig::Adapter will
+abandon a host or adapter if one of the necessary keys or values is missing,
+and return undef to the caller.
+
+Began building a test suite for the module. To do this I had to build fake
+Win32 Registries. It works, although it's untidy, and I don't think it is safe
+for distribution yet.
+
+Expanded the documentation on the get_domain and get_dns to clarify that these
+are host settings on Windows NT systems, and adapter settings on Windows 2000
+and later, but that when run on Windows NT, the methods will fake
+connection-specific values. I feel that this is a more useful approach than
+forcing the programmer to call get_domain/get_dns from Win32::IPConfig on
+Windows NT machines and get_domain/get_dns from Win32::IPConfig::Adapter on
+Windows 2000 and later machines.
+
+Added the undocumented method is_dns_enabled_for_netbt to Win32::IPConfig.
+
+There were a number of other minor improvements and corrections to code and
+documentation. In particular, a number of methods now determine the registry
+key being queried according to the operating system and then query that key for
+the data rather than using an if statement to execute similar code for
+different operating systems. The erroneous reference in the REGISTRY KEYS USED
+section of the documentation to the list of registry keys settings (moved 
+in 0.04) was deleted.
+
 ** 0.06 2004-02-08
 
 Fixed the get_adapter method of Win32::IPConfig so that it returns a single
