@@ -83,7 +83,7 @@ sub _get_static_ipaddresses
             @ipaddresses = @{$ipaddresses};
         }
     }
-    return \@ipaddresses;
+    return @ipaddresses;
 }
 
 sub _get_dhcp_ipaddresses
@@ -102,7 +102,7 @@ sub _get_dhcp_ipaddresses
             @ipaddresses = ($dhcpipaddress);
         }
     }
-    return \@ipaddresses;
+    return @ipaddresses;
 }
 
 sub get_ipaddresses
@@ -119,11 +119,62 @@ sub get_ipaddresses
     # Anyway, I still can't get my head around statically configured
     # IP addresses on an adapter that is enabled for DHCP.
 
-    my @ipaddresses = @{$self->_get_static_ipaddresses};
+    my @ipaddresses = $self->_get_static_ipaddresses;
     if ($self->is_dhcp_enabled) {
-        @ipaddresses = @{$self->_get_dhcp_ipaddresses};
+        @ipaddresses = $self->_get_dhcp_ipaddresses;
     }
-    return \@ipaddresses;
+    return wantarray ? @ipaddresses : \@ipaddresses;
+}
+
+sub _get_static_subnet_masks
+{
+    my $self = shift;
+
+    my @subnet_masks = ();
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
+        # available both from "adapterparams" and "tcpipadapterparams"
+        if (my $subnet_masks = $self->{"tcpipadapterparams"}{"SubnetMask"}) {
+            @subnet_masks = @{$subnet_masks};
+        }
+    } elsif ($self->{"osversion"} eq "4.0") {
+        # available only from "adapterparams"
+        if (my $subnet_masks = $self->{"adapterparams"}{"SubnetMask"}) {
+            @subnet_masks = @{$subnet_masks};
+        }
+    }
+    return @subnet_masks;
+}
+
+sub _get_dhcp_subnet_masks
+{
+    my $self = shift;
+
+    my @subnet_masks = ();
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
+        # available both from "adapterparams" and "tcpipadapterparams"
+        if (my $subnet_masks = $self->{"tcpipadapterparams"}{"DhcpSubnetMask"}) {
+            @subnet_masks = ($subnet_masks);
+        }
+    } elsif ($self->{"osversion"} eq "4.0") {
+        # available only from "adapterparams"
+        if (my $subnet_masks = $self->{"adapterparams"}{"DhcpSubnetMask"}) {
+            @subnet_masks = ($subnet_masks);
+        }
+    }
+    return @subnet_masks;
+}
+
+sub get_subnet_masks
+{
+    my $self = shift;
+
+    # statically configured subnet masks override dhcp assigned subnet mask
+    # but the comments attached to get_ipaddress also apply here
+    my @subnet_masks = $self->_get_static_subnet_masks;
+    if ($self->is_dhcp_enabled) {
+        @subnet_masks = $self->_get_dhcp_subnet_masks;
+    }
+    return wantarray ? @subnet_masks : \@subnet_masks;
 }
 
 sub _get_static_gateways
@@ -148,7 +199,7 @@ sub _get_static_gateways
             @gateways = (); # no statically configured gateways
         }
     }
-    return \@gateways;
+    return @gateways;
 }
 
 sub _get_dhcp_gateways
@@ -171,7 +222,7 @@ sub _get_dhcp_gateways
             @gateways = (); # no dhcp assigned gateways
         }
     }
-    return \@gateways;
+    return @gateways;
 }
 
 sub get_gateways
@@ -179,11 +230,11 @@ sub get_gateways
     my $self = shift;
     
     # statically configured gateways override dhcp assigned gateways
-    my @gateways = @{$self->_get_static_gateways};
+    my @gateways = $self->_get_static_gateways;
     if (@gateways == 0 && $self->is_dhcp_enabled) {
-        @gateways = @{$self->_get_dhcp_gateways};
+        @gateways = $self->_get_dhcp_gateways;
     }
-    return \@gateways;
+    return wantarray ? @gateways : \@gateways;
 }
 
 sub _get_static_dns
@@ -206,7 +257,7 @@ sub _get_static_dns
             @dns = (); # no statically configured dns servers
         }
     }
-    return \@dns;
+    return @dns;
 }
 
 sub _get_dhcp_dns
@@ -229,7 +280,7 @@ sub _get_dhcp_dns
             @dns = (); # no dhcp assigned dns servers
         }
     }
-    return \@dns;
+    return @dns;
 }
 
 sub get_dns
@@ -237,11 +288,11 @@ sub get_dns
     my $self = shift;
 
     # statically configured dns servers override dhcp assigned dns servers
-    my @dns = @{$self->_get_static_dns};
+    my @dns = $self->_get_static_dns;
     if (@dns == 0 && $self->is_dhcp_enabled) {
-        @dns = @{$self->_get_dhcp_dns};
+        @dns = $self->_get_dhcp_dns;
     }
-    return \@dns;
+    return wantarray ? @dns : \@dns;
 }
 
 sub _get_static_wins
@@ -262,7 +313,7 @@ sub _get_static_wins
         push @wins, $nameserver if $nameserver;
         push @wins, $nameserverbackup if $nameserverbackup;
     }
-    return \@wins;
+    return @wins;
 }
 
 sub _get_dhcp_wins
@@ -282,7 +333,7 @@ sub _get_dhcp_wins
         push @wins, $nameserver if $nameserver;
         push @wins, $nameserverbackup if $nameserverbackup;
     }
-    return \@wins;
+    return @wins;
 }
 
 sub get_wins
@@ -290,11 +341,11 @@ sub get_wins
     my $self = shift;
 
     # statically configured wins servers override dhcp assigned wins servers
-    my @wins = @{$self->_get_static_wins};
+    my @wins = $self->_get_static_wins;
     if (@wins == 0 && $self->is_dhcp_enabled) {
-        @wins = @{$self->_get_dhcp_wins};
+        @wins = $self->_get_dhcp_wins;
     }
-    return \@wins;
+    return wantarray ? @wins : \@wins;
 }
 
 sub _get_static_domain
@@ -479,32 +530,39 @@ sub dump
     }
     print "\n";
 
-    print "dhcp enabled=", $self->is_dhcp_enabled ? "Yes":"No", "\n";
+    print "dhcp enabled=", $self->is_dhcp_enabled ? "Yes" : "No", "\n";
     
-    my @ipaddresses = @{$self->get_ipaddresses};
-    print "ipaddresses=@ipaddresses (", scalar @ipaddresses, ") ";
-    if (${$self->_get_static_ipaddresses}[0] ne "0.0.0.0" && $self->is_dhcp_enabled) {
+    my @ipaddresses = $self->get_ipaddresses;
+    print "ip addresses=@ipaddresses (", scalar @ipaddresses, ") ";
+    if (($self->_get_static_ipaddresses)[0] ne "0.0.0.0" && $self->is_dhcp_enabled) {
         print "(should have been statically overridden ;-) )";
     }
     print "\n";
 
-    my @gateways = @{$self->get_gateways};
+    my @subnet_masks = $self->get_subnet_masks;
+    print "subnet masks=@subnet_masks (", scalar @subnet_masks, ") ";
+    if (($self->_get_static_subnet_masks)[0] ne "0.0.0.0" && $self->is_dhcp_enabled) {
+        print "(statically overridden)";
+    }
+    print "\n";
+
+    my @gateways = $self->get_gateways;
     print "gateways=@gateways (", scalar @gateways, ") ";
-    if (@{$self->_get_static_gateways} != 0 && $self->is_dhcp_enabled) {
+    if ($self->_get_static_gateways != 0 && $self->is_dhcp_enabled) {
         print "(statically overridden)";
     }
     print "\n";
 
-    my @dns = @{$self->get_dns};
+    my @dns = $self->get_dns;
     print "dns=@dns (", scalar @dns, ") ";
-    if (@{$self->_get_static_dns} != 0 && $self->is_dhcp_enabled) {
+    if ($self->_get_static_dns != 0 && $self->is_dhcp_enabled) {
         print "(statically overridden)";
     }
     print "\n";
 
-    my @wins = @{$self->get_wins};
+    my @wins = $self->get_wins;
     print "wins=@wins (", scalar @wins, ") ";
-    if (@{$self->_get_static_wins} != 0 && $self->is_dhcp_enabled) {
+    if ($self->_get_static_wins != 0 && $self->is_dhcp_enabled) {
         print "(statically overridden)";
     }
     print "\n";
@@ -535,19 +593,22 @@ Win32::IPConfig::Adapter - Windows NT/2000/XP Network Adapter IP Configuration S
         print "DHCP is not enabled\n";
     }
 
-    @ipaddresses = @{$adapter->get_ipaddresses};
-    print "ipaddresses=@ipaddresses (", scalar @ipaddresses, ")\n";
+    @ipaddresses = $adapter->get_ipaddresses;
+    print "ip addresses=@ipaddresses (", scalar @ipaddresses, ")\n";
 
-    @gateways = @{$adapter->get_gateways};
+    @subnet_masks = $adapter->get_subnet_masks;
+    print "subnet masks=@subnet_masks (", scalar @subnet_masks, ")\n";
+
+    @gateways = $adapter->get_gateways;
     print "gateways=@gateways (", scalar @gateways, ")\n";
 
     print "domain=", $adapter->get_domain, "\n";
 
-    @dns = @{$adapter->get_dns};
-    print "dns=@dns (", scalar @dns, ")\n";
+    @dns = $adapter->get_dns;
+    print "dns servers=@dns (", scalar @dns, ")\n";
 
-    @wins = @{$adapter->get_wins};
-    print "wins=@wins (", scalar @wins, ")\n";
+    @wins = $adapter->get_wins;
+    print "wins servers=@wins (", scalar @wins, ")\n";
 
 =head1 DESCRIPTION
 
@@ -575,15 +636,25 @@ DHCP-specific registry keys.
 
 =item $adapter->get_ipaddresses
 
-Returns a reference to a list of ip addresses for this adapter.
+Returns a list of ip addresses for this adapter.
+(Returns a reference to a list in a scalar context.)
+
+=item $adapter->get_subnet_masks
+
+Returns a list of subnet masks for this adapter.
+(Returns a reference to a list in a scalar context.)
+The order of subnet masks follows the order of ip addresses, so,
+for example, the 2nd subnet mask will match the 2nd ip address.
 
 =item $adapter->get_gateways
 
-Returns a reference to a list containing default gateway ip addresses.
-(Bet you didn't realise Windows allowed you to have multiple
-default gateways.) If no default gateways are configured, a reference
-to an empty list will be returned.
+Returns a list containing the default gateway ip addresses.
+(Returns a reference to a list in a scalar context.)
+If no default gateways are configured, an empty list will be returned.
 Statically configured default gateways will override any assigned by DHCP.
+
+(Bet you didn't realise Windows allowed you to have multiple
+default gateways.)
 
 =item $adapter->get_domain
 
@@ -596,14 +667,16 @@ on Windows NT machines.)
 
 =item $adapter->get_dns
 
-Returns a reference to a list containing DNS server ip addresses. If no DNS
-servers are configured, a reference to an empty list will be returned.
+Returns a list containing DNS server ip addresses.
+(Returns a reference to a list in a scalar context.)
+If no DNS servers are configured, an empty list will be returned.
 Statically configured DNS Servers will override any assigned by DHCP.
 
 =item $adapter->get_wins
 
-Returns a reference to a list containing WINS server ip addresses. If no WINS
-servers are configured, a reference to an empty list will be returned.
+Returns a list containing WINS server ip addresses.
+(Returns a reference to a list in a scalar context.)
+If no WINS servers are configured, an empty list will be returned.
 Statically configured WINS Servers will override any assigned by DHCP.
 
 =item $adapter->set_domain($domainsuffix)

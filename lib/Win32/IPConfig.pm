@@ -4,7 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 use Carp;
 use Win32::TieRegistry qw/:KEY_/;
@@ -49,7 +49,11 @@ sub new
     return $self;
 }
 
-sub get_adapters { return $_[0]->{"adapters"}; }
+sub get_adapters
+{
+    return wantarray ? @{$_[0]->{"adapters"}} : $_[0]->{"adapters"};
+}
+
 sub get_osversion { return $_[0]->{"osversion"}; }
 
 sub get_hostname
@@ -76,7 +80,7 @@ sub get_searchlist
     } else {
         @searchlist = split / /, $self->{"tcpipparams"}{"SearchList"};
     }
-    return \@searchlist;
+    return wantarray ? @searchlist : \@searchlist;
 }
 
 sub get_nodetype
@@ -138,7 +142,7 @@ sub get_adapter
     my $self = shift;
     my $adapter_num = shift;
 
-    my $adapter = ${$self->{"adapters"}}[$adapter_num];
+    my $adapter = ($self->{"adapters"})[$adapter_num];
     return $adapter;
 }
 
@@ -148,14 +152,14 @@ sub dump
 
     print "hostname=", $self->get_hostname, "\n";
     print "domain=", $self->get_domain, "\n";
-    my @searchlist = @{$self->get_searchlist};
-    print "searchlist=@searchlist\n";
     print "nodetype=", $self->get_nodetype, "\n";
     print "ip routing enabled=", $self->is_router ? "Yes":"No", "\n";
     print "wins proxy enabled=", $self->is_wins_proxy ? "Yes":"No", "\n";
     print "LMHOSTS enabled=", $self->is_lmhosts_enabled ? "Yes":"No", "\n";
+    my @searchlist = $self->get_searchlist;
+    print "searchlist=@searchlist (", scalar @searchlist, ")\n";
     my $i = 1;
-    for (@{$self->get_adapters}) {
+    for ($self->get_adapters) {
         print "\nCard ", $i++, ":\n";
         $_->dump;
     }
@@ -311,7 +315,7 @@ Win32::IPConfig - Windows NT/2000/XP IP Configuration Settings
         print "domain=", $ipconfig->get_domain, "\n";
         print "nodetype=", $ipconfig->get_nodetype, "\n";
 
-        for $adapter (@{$ipconfig->get_adapters}) {
+        foreach $adapter ($ipconfig->get_adapters) {
             print "\nAdapter ";
             print $adapter->get_id, "\n";
             print $adapter->get_description, "\n";
@@ -322,18 +326,21 @@ Win32::IPConfig - Windows NT/2000/XP IP Configuration Settings
                 print "DHCP is not enabled\n";
             }
 
-            @ipaddresses = @{$adapter->get_ipaddresses};
-            print "ipaddresses=@ipaddresses (", scalar @ipaddresses, ")\n";
+            @ipaddresses = $adapter->get_ipaddresses;
+            print "ip addresses=@ipaddresses (", scalar @ipaddresses, ")\n";
 
-            @gateways = @{$adapter->get_gateways};
+            @subnet_masks = $adapter->get_subnet_masks;
+            print "subnet masks=@subnet_masks (", scalar @subnet_masks, ")\n";
+
+            @gateways = $adapter->get_gateways;
             print "gateways=@gateways (", scalar @gateways, ")\n";
 
             print "domain=", $adapter->get_domain, "\n";
 
-            @dns = @{$adapter->get_dns};
+            @dns = $adapter->get_dns;
             print "dns=@dns (", scalar @dns, ")\n";
 
-            @wins = @{$adapter->get_wins};
+            @wins = $adapter->get_wins;
             print "wins=@wins (", scalar @wins, ")\n";
         }
     }
@@ -374,21 +381,22 @@ and default to 0x8 H-node if there are. The four possible node types are:
     B-node - resolve NetBIOS names by broadcast
     P-node - resolve NetBIOS names using a WINS server
     M-node - resolve NetBIOS names by broadcast, then using a WINS server
-    H-node - resolce NetBIOS names using a WINS server, then by broadcast
+    H-node - resolve NetBIOS names using a WINS server, then by broadcast
 
 Currently this value is only reliable on statically configured hosts.
 Do not rely on this value if you have DHCP enabled adapters.
 
 =item $ipconfig->get_adapters
 
-The real business of the module. Returns a reference to list of
-Win32::IPConfig::Adapter objects. See the Adapter documentation
-for more information.
+The real business of the module. Returns a list of
+Win32::IPConfig::Adapter objects.
+(Returns a reference to a list in a scalar context.)
+See the Adapter documentation for more information.
 
 =item $ipconfig->get_adapter($num)
 
 Returns the Win32::IPConfig::Adapter specified by $num. Use
-$ipconfig->get_adapter(0) to retrieve the first adapter.
+C<$ipconfig-E<gt>get_adapter(0)> to retrieve the first adapter.
 
 =back
 
@@ -398,25 +406,25 @@ $ipconfig->get_adapter(0) to retrieve the first adapter.
 
     use Win32::IPConfig;
 
-    print "hostname,domain,dhcp?,ipaddresses,gateways,dns servers,wins servers\n";
+    print "hostname,domain,dhcp?,ip addresses,subnet masks,gateways,dns servers,wins servers\n";
     while (<DATA>) {
         chomp;
         $ipconfig = Win32::IPConfig->new($_);
-        print $ipconfig->get_hostname, ",", $ipconfig->get_domain, ",";
-        if (@adapters = @{$ipconfig->get_adapters}) {
+        print $ipconfig->get_hostname, ",";
+        print $ipconfig->get_domain, ",";
+
+        if (@adapters = $ipconfig->get_adapters) {
             $adapter = $adapters[0];
-            if ($adapter->is_dhcp_enabled) {
-                print "Y,";
-            } else {
-                print "N,";
-            }
-            @ipaddresses = @{$adapter->get_ipaddresses};
+            print $adapter->is_dhcp_enabled ? "Y," : "N,";
+            @ipaddresses = $adapter->get_ipaddresses;
             print "@ipaddresses,";
-            @gateways = @{$adapter->get_gateways};
+            @subnet_masks = $adapter->get_subnet_masks;
+            print "@subnet_masks,";
+            @gateways = $adapter->get_gateways;
             print "@gateways,";
-            @dns = @{$adapter->get_dns};
+            @dns = $adapter->get_dns;
             print "@dns,";
-            @wins = @{$adapter->get_wins};
+            @wins = $adapter->get_wins;
             print "@wins";
         }
         print "\n";

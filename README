@@ -4,8 +4,8 @@ Win32::IPConfig
 DESCRIPTION
 
 Win32::IPConfig is a module for retrieving TCP/IP network settings from a
-Windows NT/2000 host machine. Specify the host and the module will retrieve and
-collate all the information from the specified machine's registry (using
+Windows NT/2000/XP host machine. Specify the host and the module will retrieve
+and collate all the information from the specified machine's registry (using
 Win32::TieRegistry). For this module to retrieve information from a host
 machine, you must have read access to the registry on that machine.
 

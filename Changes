@@ -1,5 +1,26 @@
 Revision history for Perl extension Win32::IPConfig.
 
+** 0.05 2003-09-28
+
+Changed the following methods to return a list in an array context
+and a reference to a list in a scalar context:
+
+  Win32::IPConfig
+    get_adapters
+
+  Win32::IPConfig::Adapter
+    get_ipaddresses
+    get_subnet_masks
+    get_gateways
+    get_dns
+    get_wins
+
+Updated the synopses and examples to use array context for the
+list methods. Changed the internal methods to pass lists instead
+of references to lists.
+
+Added the get_subnet_masks method to Win32::IPConfig::Adapter objects.
+
 ** 0.04 2003-05-04
 
 Now tested with Windows XP. Documentation updated to reflect this.
