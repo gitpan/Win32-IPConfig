@@ -6,6 +6,8 @@ use warnings;
 
 use Win32::TieRegistry qw/:KEY_/;
 
+our $debug = 0;
+
 sub new
 {
     my $class = shift;
@@ -25,6 +27,7 @@ sub new
     $self->{"osversion"} = $osversion;
     $self->{"id"} = $id;
     $self->{"description"} = $description;
+    print "Scanning ", $self->{"id"}, "\n" if $debug;
 
     # connect to the appropriate registry keys
     my $tcpipparams = $services->{"Tcpip\\Parameters"};
@@ -32,9 +35,11 @@ sub new
     my $tcpipadapterparams;
     if ($osversion eq "5.0") {
         $tcpipadapterparams = $services->{"Tcpip\\Parameters\\Interfaces\\$id"};
-        $adapterparams = $services->{"$id\\Parameters\\Tcpip"};
+        $adapterparams = $services->{"$id\\Parameters\\Tcpip"}
+            or return undef;
     } elsif ($osversion eq "4.0") {
-        $adapterparams = $services->{"$id\\Parameters\\Tcpip"};
+        $adapterparams = $services->{"$id\\Parameters\\Tcpip"}
+            or return undef;
     }
 
     # dhcp enabled?
@@ -47,33 +52,35 @@ sub new
     }
 
     # ip addresses
+    my @ipaddresses = ();
     if ($osversion eq "5.0") {
         # available both from $adapterparams and $tcpipadapterparams
         if ($self->{"dhcp_enabled"}) {
-            my $dhcpipaddress = $tcpipadapterparams->{"DHCPIPAddress"};
-            $self->{ipaddresses} = [$dhcpipaddress];
+            if (my $dhcpipaddress = $tcpipadapterparams->{"DHCPIPAddress"}) {
+                @ipaddresses = ($dhcpipaddress);
+            }
         } else {
-            my @ipaddresses = @{$tcpipadapterparams->{"IPAddress"}};
+            @ipaddresses = @{$tcpipadapterparams->{"IPAddress"}};
             if ($ipaddresses[0] eq "0.0.0.0") {
-                die "invalid static ip address";
+                # die "invalid static ip address";
                 # perhaps it autoconfigured?
             }
-            $self->{ipaddresses} = \@ipaddresses;
         }
     } elsif ($osversion eq "4.0") {
         # available only from $adapterparams
         if ($self->{"dhcp_enabled"}) {
-            my $dhcpipaddress = $adapterparams->{"DHCPIPAddress"};
-            $self->{ipaddresses} = [$dhcpipaddress];
+            if (my $dhcpipaddress = $adapterparams->{"DHCPIPAddress"}) {
+                @ipaddresses = ($dhcpipaddress);
+            }
         } else {
-            my @ipaddresses = @{$adapterparams->{"IPAddress"}};
+            @ipaddresses = @{$adapterparams->{"IPAddress"}};
             if ($ipaddresses[0] eq "0.0.0.0") {
-                die "invalid static ip address";
+                # die "invalid static ip address";
                 # perhaps it autoconfigured?
             }
-            $self->{ipaddresses} = \@ipaddresses;
         }
     }
+    $self->{ipaddresses} = \@ipaddresses;
 
     # connection-specific domain (for Windows 2000+)
     if ($osversion eq "5.0") {
@@ -88,14 +95,18 @@ sub new
     if ($osversion eq "5.0") {
         # available only from $tcpipadapterparams
         if ($self->{"dhcp_enabled"}) {
-            @nameservers = split / /, $tcpipadapterparams->{"DhcpNameServer"};
+            if (my $dns = $tcpipadapterparams->{"DhcpNameServer"}) {
+                @nameservers = split / /, $dns;
+            }
         } else {
             @nameservers = split /,/, $tcpipadapterparams->{"NameServer"};
         }
     } elsif ($osversion eq "4.0") {
         # actually a NT4 host setting rather than an adapter one
         if ($self->{"dhcp_enabled"}) {
-            @nameservers = split / /, $tcpipparams->{"DhcpNameServer"};
+            if (my $dns = $tcpipparams->{"DhcpNameServer"}) {
+                @nameservers = split / /, $dns;
+            }
         } else {
             @nameservers = split / /, $tcpipparams->{"NameServer"};
         }
@@ -108,7 +119,9 @@ sub new
     if ($osversion eq "5.0") {
         my $netbt = $services->{"Netbt\\Parameters\\Interfaces\\Tcpip_$id"};
         if ($self->{"dhcp_enabled"}) {
-            @wins = @{$netbt->{'DhcpNameServerList'}};
+            if (my $wins = $netbt->{'DhcpNameServerList'}) {
+                @wins = @{$wins};
+            }
         } else {
             @wins = @{$netbt->{'NameServerList'}};
         }
@@ -134,14 +147,18 @@ sub new
     if ($osversion eq "5.0") {
         # available both from $adapterparams and $tcpipadapterparams
         if ($self->{"dhcp_enabled"}) {
-            @gateways = @{$tcpipadapterparams->{"DhcpDefaultGateway"}};
+            if (my $gateways = $tcpipadapterparams->{"DhcpDefaultGateway"}) {
+                @gateways = @{$gateways};
+            }
         } else {
             @gateways = @{$tcpipadapterparams->{"DefaultGateway"}};
         }
     } elsif ($osversion eq "4.0") {
         # available only from $adapterparams
         if ($self->{"dhcp_enabled"}) {
-            @gateways = @{$adapterparams->{"DhcpDefaultGateway"}};
+            if (my $gateways = $adapterparams->{"DhcpDefaultGateway"}) {
+                @gateways = @{$gateways};
+            }
         } else {
             @gateways = @{$adapterparams->{"DefaultGateway"}};
         }
@@ -247,7 +264,7 @@ Win32::IPConfig::Adapter - Windows NT/2000 Network Adapter IP Configuration Sett
 Win32::IPConfig::Adapter encapsulates the TCP/IP 
 configuration settings for a Windows NT/2000 network adapter.
 
-=head2 METHODS
+=head1 METHODS
 
 =over 4
 
@@ -283,7 +300,5 @@ servers are configured, a reference to an empty list will be returned.
 =head1 AUTHOR
 
 James Macfarlane, E<lt>jmacfarla@cpan.orgE<gt>
-
-=back
 
 =cut

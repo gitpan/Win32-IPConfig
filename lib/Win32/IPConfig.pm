@@ -4,7 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 use Win32::TieRegistry qw/:KEY_/;
 use Win32::IPConfig::Adapter;
@@ -49,8 +49,9 @@ sub new
     # Retrieve each network card's config
     my $networkcards = $hklm->{"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\NetworkCards"};
     for my $nic ($networkcards->SubKeyNames) {
-        my $adapter = Win32::IPConfig::Adapter->new($hklm, $nic);
-        push @{$self->{"adapters"}}, $adapter;
+        if (my $adapter = Win32::IPConfig::Adapter->new($hklm, $nic)) {
+            push @{$self->{"adapters"}}, $adapter;
+        }
     }
 
     $self->{"osversion"} = $osversion;

@@ -1,5 +1,21 @@
 Revision history for Perl extension Win32::IPConfig.
 
+** 0.01 2003-01-20
+
+Discovered that some NDIS WAN Adapters on NT 4.0 do not have an
+<adapter>\Parameters\Tcpip key. Changed code to skip adapters
+that don't have this key.
+
+Discovered also that a NDIS WAN Adapter on NT 4.0 could have a static
+ip address of 0.0.0.0, so commented out the sanity check for static
+ip addresses.
+
+Discovered that an adapter could be enabled for DHCP but
+not have dhcp values (because it was not connected to the network).
+Changed extraction of dhcp ip address, dhcp dns servers, dhcp wins
+servers, and dhcp gateways to check for the existence of the value
+before assignment.
+
 ** 0.01 2003-01-19
 
 Initial release.
