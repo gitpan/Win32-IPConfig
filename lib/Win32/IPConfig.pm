@@ -4,7 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 use Carp;
 use Win32::TieRegistry qw/:KEY_/;
@@ -24,8 +24,8 @@ sub new
 
     my $osversion = $hklm->{"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\CurrentVersion"};
 
-    unless ($osversion eq "4.0" || $osversion eq "5.0") {
-        croak "Currently only supports Windows NT/2000";
+    unless ($osversion eq "4.0" || $osversion eq "5.0" || $osversion eq "5.1") {
+        croak "Currently only supports Windows NT/2000/XP";
     }
 
     my $services = $hklm->{"SYSTEM\\CurrentControlSet\\Services"};
@@ -71,7 +71,7 @@ sub get_searchlist
     my $self = shift;
 
     my @searchlist;
-    if ($self->{"osversion"} eq "5.0") {
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         @searchlist = split /,/, $self->{"tcpipparams"}{"SearchList"};
     } else {
         @searchlist = split / /, $self->{"tcpipparams"}{"SearchList"};
@@ -163,22 +163,143 @@ sub dump
 
 1;
 
-# What changes will require a reboot?
-#
-# Windows NT
-# Remotely set the domain, and it took effect immediately in an ipconfig.
-# Adding a dns server requires a reboot
-# Changing a wins server requires a reboot
-#
-# Windows 2000
-# A change to the primary domain on Windows 2000 requires a reboot
-# This is not necessary for changing the connection-specific domain.
+# IP Address Information
+
+# Value:   IPAddress (REG_MULTI_SZ)
+# NT:      <adapter>\Parameters\Tcpip
+# 2000/XP: <adapter>\Parameters\Tcpip
+# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
+
+# Value:   SubnetMask (REG_MULTI_SZ)
+# NT:      <adapter>\Parameters\Tcpip
+# 2000/XP: <adapter>\Parameters\Tcpip
+# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
+
+# Value:   DefaultGateway (REG_MULTI_SZ)
+# NT:      <adapter>\Parameters\Tcpip
+# 2000/XP: <adapter>\Parameters\Tcpip
+# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
+
+# Value:   IPEnableRouter (REG_DWORD)
+# NT:      Tcpip\Parameters
+# 2000/XP: Tcpip\Parameters
+
+# Value:   EnableDHCP (REG_DWORD)
+# NT:      <adapter>\Parameters\Tcpip
+# 2000/XP: <adapter>\Parameters\Tcpip
+# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
+
+# Value:   DhcpIPAddress (REG_SZ)
+# NT:      <adapter>\Parameters\Tcpip
+# 2000/XP: <adapter>\Parameters\Tcpip
+# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
+
+# Value:   DhcpSubnetMask (REG_SZ)
+# NT:      <adapter>\Parameters\Tcpip
+# 2000/XP: <adapter>\Parameters\Tcpip
+# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
+
+# Value:   DhcpDefaultGateway (REG_MULTI_SZ)
+# NT:      <adapter>\Parameters\Tcpip
+# 2000/XP: <adapter>\Parameters\Tcpip
+# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
+
+# Value:   DhcpServer (REG_SZ)
+# NT:      <adapter>\Parameters\Tcpip
+# 2000/XP: <adapter>\Parameters\Tcpip
+# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
+
+# Value:   LeaseObtainedTime (REG_DWORD)
+# NT:      <adapter>\Parameters\Tcpip
+# 2000/XP: <adapter>\Parameters\Tcpip
+# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
+
+# Value:   LeaseTerminatesTime (REG_DWORD)
+# NT:      <adapter>\Parameters\Tcpip
+# 2000/XP: <adapter>\Parameters\Tcpip
+# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
+
+# DNS Information
+
+# Value:   Hostname (REG_SZ)
+# NT:      Tcpip\Parameters
+# 2000/XP: Tcpip\Parameters
+
+# Value:   NV Hostname (REG_SZ)
+# 2000/XP: Tcpip\Parameters
+
+# Value:   Domain (REG_SZ)
+# NT:      Tcpip\Parameters
+# 2000/XP: Tcpip\Parameters (primary)
+# 2000/XP: Tcpip\Parameters\Interfaces\<adapter> (connection-specific)
+
+# Value:   NV Domain (REG_SZ)
+# 2000/XP: Tcpip\Parameters
+
+# Value:   NameServer (REG_SZ) (a space delimited list)
+# NT:      Tcpip\Parameters
+# 2000/XP: Tcpip\Parameters (although it was blank; is it used?)
+# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
+
+# Value:   SearchList (REG_SZ) (space delimited on NT, comma delimited on 2000)
+# NT:      Tcpip\Parameters
+# 2000/XP: Tcpip\Parameters
+
+# Value:   DhcpDomain (REG_SZ)
+# NT:      *still to be determined*
+# 2000/XP: Tcpip\Parameters
+# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
+
+# Value:   DhcpNameServer (REG_SZ) (a space delimited list)
+# NT:      Tcpip\Parameters
+# 2000/XP: Tcpip\Parameters (same as below)
+# 2000/XP: Tcpip\Parameters\Interfaces\<adapter>
+
+# WINS Information
+
+# Value:   NameServer (REG_SZ)
+# NT:      Netbt\Adapters\<adapter>
+
+# Value:   NameServerBackup (REG_SZ)
+# NT:      Netbt\Adapters\<adapter>
+
+# Value:   NameServerList (REG_MULTI_SZ)
+# 2000/XP: Netbt\Parameters\Interfaces\Tcpip_<adapter>
+
+# Value:   DhcpNameServer (REG_SZ)
+# NT:      Netbt\Adapters\<adapter>
+
+# Value:   DhcpNameServerBackup (REG_SZ)
+# NT:      Netbt\Adapters\<adapter>
+
+# Value:   DhcpNameServerList (REG_MULTI_SZ)
+# 2000/XP: Netbt\Parameters\Interfaces\Tcpip_<adapter>
+
+# Q120642 and Q314053 talk about NameServer and NameServerBackup
+# existing on 2000 in the Netbt\Parameters\Interfaces\Tcpip_<adapter>
+# registry key, but this appears to be wrong.
+
+# Value:   NodeType (REG_DWORD)
+# NT:      Netbt\Parameters
+# 2000/XP: Netbt\Parameters
+
+# Value:   DhcpNodeType (REG_DWORD) (overidden by NodeType)
+# NT:      Netbt\Parameters
+# 2000/XP: Netbt\Parameters
+
+# Value:   EnableProxy (REG_DWORD)
+# NT:      Netbt\Parameters
+# 2000/XP: Netbt\Parameters
+
+# Value:   EnableLMHOSTS (REG_DWORD)
+# NT:      Netbt\Parameters
+# 2000/XP: Netbt\Parameters
 
 __END__
 
 =head1 NAME
 
-Win32::IPConfig - Windows NT/2000 IP Configuration Settings
+Win32::IPConfig - Windows NT/2000/XP IP Configuration Settings
 
 =head1 SYNOPSIS
 
@@ -220,8 +341,8 @@ Win32::IPConfig - Windows NT/2000 IP Configuration Settings
 =head1 DESCRIPTION
 
 Win32::IPConfig is a module for retrieving TCP/IP network settings from a
-Windows NT/2000 host machine. Specify the host and the module will retrieve and
-collate all the information from the specified machine's registry (using
+Windows NT/2000/XP host machine. Specify the host and the module will retrieve
+and collate all the information from the specified machine's registry (using
 Win32::TieRegistry). For this module to retrieve information from a host
 machine, you must have read and write access to the registry on that machine.
 
@@ -241,8 +362,8 @@ Returns a string containing the DNS hostname of the machine.
 =item $ipconfig->get_domain
 
 Returns a string containing the domain name of the machine.
-In the case of a Windows 2000 machine (which can have connection-specific
-domain names), this is the primary domain name.
+For Windows 2000/XP machines (which can have connection-specific
+domain names) this is the primary domain name.
 
 =item $ipconfig->get_nodetype
 
@@ -306,6 +427,16 @@ $ipconfig->get_adapter(0) to retrieve the first adapter.
     HOST2
     HOST3
 
+=head2 Setting a PC's DNS servers
+
+    use Win32::IPConfig;
+
+    my $host = shift;
+    my $ipconfig = Win32::IPConfig->new($host);
+    my @dns = @ARGV;
+    my $adapter = $ipconfig->get_adapter(0);
+    $adapter->set_dns(@dns);
+
 =head1 REGISTRY KEYS USED
 
 IP configuration information is stored in a number of registry keys under
@@ -316,153 +447,46 @@ which can be found by examining the list of installed network cards at
 HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkCards.
 
 Note that in NT the adapter id will look like a service or driver, while in
-2000 it will be a GUID.
+2000/XP it will be a GUID.
 
-There are some variations in where Windows NT and Windows 2000 store TCP/IP
+There are some variations in where Windows NT and Windows 2000/XP store TCP/IP
 configuration data. This is shown in the following lists. Note that Windows
-2000 sometimes stores data in the old location as well as the new 2000
-adapter-specific location. In these cases, the module will read the data
-from the new registry location.
+2000/XP sometimes stores data in the old adapter-specific location as well as
+the new 2000/XP adapter-specific location. In these cases, the module will read
+the data from the new registry location.
 
-=head2 IP Address Information
+For all operating systems, the main keys are:
 
-    Value: IPAddress (REG_MULTI_SZ)
-    NT:    <adapter>\Parameters\Tcpip
-    2000:  <adapter>\Parameters\Tcpip
-    2000:  Tcpip\Parameters\Interfaces\<adapter>
+    Tcpip\Parameters
+    Netbt\Parameters
 
-    Value: SubnetMask (REG_MULTI_SZ)
-    NT:    <adapter>\Parameters\Tcpip
-    2000:  <adapter>\Parameters\Tcpip
-    2000:  Tcpip\Parameters\Interfaces\<adapter>
+Adapter-specific settings are stored in:
 
-    Value: DefaultGateway (REG_MULTI_SZ)
-    NT:    <adapter>\Parameters\Tcpip
-    2000:  <adapter>\Parameters\Tcpip
-    2000:  Tcpip\Parameters\Interfaces\<adapter>
+    <adapter>\Parameters\Tcpip (Windows NT)
+    Tcpip\Parameters\Interfaces\<adapter> (Windows 2000/XP)
 
-    Value: EnableDHCP (REG_DWORD)
-    NT:    <adapter>\Parameters\Tcpip
-    2000:  <adapter>\Parameters\Tcpip
-    2000:  Tcpip\Parameters\Interfaces\<adapter>
+NetBIOS over TCP/IP stores adapter-specific settings in:
 
-    Value: DhcpIPAddress (REG_SZ)
-    NT:    <adapter>\Parameters\Tcpip
-    2000:  <adapter>\Parameters\Tcpip
-    2000:  Tcpip\Parameters\Interfaces\<adapter>
-
-    Value: DhcpSubnetMask (REG_SZ)
-    NT:    <adapter>\Parameters\Tcpip
-    2000:  <adapter>\Parameters\Tcpip
-    2000:  Tcpip\Parameters\Interfaces\<adapter>
-
-    Value: DhcpDefaultGateway (REG_MULTI_SZ)
-    NT:    <adapter>\Parameters\Tcpip
-    2000:  <adapter>\Parameters\Tcpip
-    2000:  Tcpip\Parameters\Interfaces\<adapter>
-
-    Value: DhcpServer (REG_SZ)
-    NT:    <adapter>\Parameters\Tcpip
-    2000:  <adapter>\Parameters\Tcpip
-    2000:  Tcpip\Parameters\Interfaces\<adapter>
-
-    Value: IPEnableRouter (REG_DWORD)
-    NT:    Tcpip\Parameters
-    2000:  Tcpip\Parameters
-
-=head2 DNS Information
-
-    Value: Hostname (REG_SZ)
-    NT:    Tcpip\Parameters
-    2000:  Tcpip\Parameters
-
-    Value: NV Hostname (REG_SZ)
-    2000:  Tcpip\Parameters
-
-    Value: Domain (REG_SZ)
-    NT:    Tcpip\Parameters
-    2000:  Tcpip\Parameters (primary)
-    2000:  Tcpip\Parameters\Interfaces\<adapter> (connection-specific)
-
-    Value: NV Domain (REG_SZ)
-    2000:  Tcpip\Parameters
-
-    Value: NameServer (REG_SZ) (a space delimited list)
-    NT:    Tcpip\Parameters
-    2000:  Tcpip\Parameters (although it was blank; is it used?)
-    2000:  Tcpip\Parameters\Interfaces\<adapter>
-
-    Value: SearchList (REG_SZ) (space delimited on NT, comma delimited on 2000)
-    NT:    Tcpip\Parameters
-    2000:  Tcpip\Parameters
-
-    Value: DhcpDomain (REG_SZ)
-    NT:    *still to be determined*
-    2000:  Tcpip\Parameters
-    2000:  Tcpip\Parameters\Interfaces\<adapter>
-
-    Value: DhcpNameServer (REG_SZ) (a space delimited list)
-    NT:    Tcpip\Parameters
-    2000:  Tcpip\Parameters (same as below)
-    2000:  Tcpip\Parameters\Interfaces\<adapter>
-
-=head2 WINS Information
-
-    Value: NameServer (REG_SZ)
-    NT:    Netbt\Adapters\<adapter>
-
-    Value: NameServerBackup (REG_SZ)
-    NT:    Netbt\Adapters\<adapter>
-
-    Value: NameServerList (REG_MULTI_SZ)
-    2000:  Netbt\Parameters\Interfaces\Tcpip_<adapter>
-
-    Value: DhcpNameServer (REG_SZ)
-    NT:    Netbt\Adapters\<adapter>
-
-    Value: DhcpNameServerBackup (REG_SZ)
-    NT:    Netbt\Adapters\<adapter>
-
-    Value: DhcpNameServerList (REG_MULTI_SZ)
-    2000:  Netbt\Parameters\Interfaces\Tcpip_<adapter>
-
-Q120642 and Q314053 talk about NameServer and NameServerBackup
-existing on 2000 in the Netbt\Parameters\Interfaces\Tcpip_<adapter>
-registry key, but this appears to be wrong.
-
-    Value: NodeType (REG_DWORD)
-    NT:    Netbt\Parameters
-    2000:  Netbt\Parameters
-
-    Value: DhcpNodeType (REG_DWORD) (overidden by NodeType)
-    NT:    Netbt\Parameters
-    2000:  Netbt\Parameters
-
-    Value: EnableProxy (REG_DWORD)
-    NT:    Netbt\Parameters
-    2000:  Netbt\Parameters
-
-    Value: EnableLMHOSTS (REG_DWORD)
-    NT:    Netbt\Parameters
-    2000:  Netbt\Parameters
+    Netbt\Adapters\<adapter> (on Windows NT)
+    Netbt\Parameters\Interfaces\Tcpip_<adapter> (on Windows 2000/XP)
 
 =head1 NOTES
 
-Note that Windows 2000 will use its DNS server setting to resolve
+Note that Windows 2000 and later will use its DNS server setting to resolve
 Windows computer names, whereas Windows NT will use its WINS server
 settings first.
 
-For Windows 2000, the primary domain, connection-specific domain
+For Windows 2000 and later, both the primary and connection-specific domain
 settings are significant and will be used in this initial name 
 resolution process.
 
 The DHCP Server options correspond to the following registry values:
 
-    003 Router             -> DhcpDefaultGateway
-    006 DNS Servers        -> DhcpNameServer
-    015 DNS Domain Name    -> DhcpDomain
-    044 WINS/NBNS Servers  -> DhcpNameServer/DhcpNameServerList
-    046 WINS/NBT Node Type -> DhcpNodeType
+    003 Router              ->  DhcpDefaultGateway
+    006 DNS Servers         ->  DhcpNameServer
+    015 DNS Domain Name     ->  DhcpDomain
+    044 WINS/NBNS Servers   ->  DhcpNameServer/DhcpNameServerList
+    046 WINS/NBT Node Type  ->  DhcpNodeType
 
 =head1 AUTHOR
 

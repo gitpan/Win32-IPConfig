@@ -6,6 +6,7 @@ use warnings;
 
 use Carp;
 use Win32::TieRegistry qw/:KEY_/;
+use POSIX qw/strftime/;
 
 sub new
 {
@@ -34,7 +35,7 @@ sub new
         or return undef;
     my $tcpipadapterparams;
     my $netbtadapter;
-    if ($osversion eq "5.0") {
+    if ($osversion eq "5.0" || $osversion eq "5.1") {
         $tcpipadapterparams = $services->{"Tcpip\\Parameters\\Interfaces\\$id"}
             or return undef;
         $netbtadapter = $services->{"Netbt\\Parameters\\Interfaces\\Tcpip_$id"};
@@ -48,7 +49,7 @@ sub new
     $self->{"netbtadapter"} = $netbtadapter;
 
     # dhcp enabled?
-    if ($osversion eq "5.0") {
+    if ($osversion eq "5.0" || $osversion eq "5.1") {
         # available both from "adapterparams" and "tcpipadapterparams"
         $self->{"dhcp_enabled"} = hex($self->{"tcpipadapterparams"}{"EnableDHCP"});
     } elsif ($osversion eq "4.0") {
@@ -71,7 +72,7 @@ sub _get_static_ipaddresses
     my $self = shift;
 
     my @ipaddresses = ();
-    if ($self->{"osversion"} eq "5.0") {
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         # available both from "adapterparams" and "tcpipadapterparams"
         if (my $ipaddresses = $self->{"tcpipadapterparams"}{"IPAddress"}) {
             @ipaddresses = @{$ipaddresses};
@@ -90,7 +91,7 @@ sub _get_dhcp_ipaddresses
     my $self = shift;
 
     my @ipaddresses = ();
-    if ($self->{"osversion"} eq "5.0") {
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         # available both from "adapterparams" and "tcpipadapterparams"
         if (my $dhcpipaddress = $self->{"tcpipadapterparams"}{"DHCPIPAddress"}) {
             @ipaddresses = ($dhcpipaddress);
@@ -130,7 +131,7 @@ sub _get_static_gateways
     my $self = shift;
 
     my @gateways = ();
-    if ($self->{"osversion"} eq "5.0") {
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         # available both from "adapterparams" and "tcpipadapterparams"
         if (my $gateways = $self->{"tcpipadapterparams"}{"DefaultGateway"}) {
             @gateways = @{$gateways};
@@ -155,7 +156,7 @@ sub _get_dhcp_gateways
     my $self = shift;
 
     my @gateways = ();
-    if ($self->{"osversion"} eq "5.0") {
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         # available both from "adapterparams" and "tcpipadapterparams"
         if (my $gateways = $self->{"tcpipadapterparams"}{"DhcpDefaultGateway"}) {
             @gateways = @{$gateways};
@@ -190,7 +191,7 @@ sub _get_static_dns
     my $self = shift;
 
     my @dns = ();
-    if ($self->{"osversion"} eq "5.0") {
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         # available only from "tcpipadapterparams"
         if (my $dns = $self->{"tcpipadapterparams"}{"NameServer"}) {
             @dns = split /,/, $dns;
@@ -213,7 +214,7 @@ sub _get_dhcp_dns
     my $self = shift;
 
     my @dns = ();
-    if ($self->{"osversion"} eq "5.0") {
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         # available only from "tcpipadapterparams"
         if (my $dns = $self->{"tcpipadapterparams"}{"DhcpNameServer"}) {
             @dns = split / /, $dns;
@@ -248,7 +249,7 @@ sub _get_static_wins
     my $self = shift;
 
     my @wins = ();
-    if ($self->{"osversion"} eq "5.0") {
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         if (my $wins = $self->{"netbtadapter"}{"NameServerList"}) {
             @wins = @{$wins};
             @wins = grep { $_ } @wins; # remove empty entries
@@ -269,7 +270,7 @@ sub _get_dhcp_wins
     my $self = shift;
 
     my @wins = ();
-    if ($self->{"osversion"} eq "5.0") {
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         if (my $wins = $self->{"netbtadapter"}{"DhcpNameServerList"}) {
             @wins = @{$wins};
         } else {
@@ -301,7 +302,7 @@ sub _get_static_domain
     my $self = shift;
 
     my $domain;
-    if ($self->{"osversion"} eq "5.0") {
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         # available only from "tcpipadapterparams"
         $domain = $self->{"tcpipadapterparams"}{"Domain"};
     } elsif ($self->{"osversion"} eq "4.0") {
@@ -316,7 +317,7 @@ sub _get_dhcp_domain
     my $self = shift;
 
     my $domain;
-    if ($self->{"osversion"} eq "5.0") {
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         # available only from "tcpipadapterparams"
         $domain = $self->{"tcpipadapterparams"}{"DhcpDomain"};
     }
@@ -345,7 +346,7 @@ sub set_domain
 
     croak "Invalid Domain Name Suffix" unless $domain =~ /^[\w\.]+$/;
 
-    if ($self->{"osversion"} eq "5.0") {
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         $self->{"tcpipadapterparams"}{"Domain"} = $domain;
     } elsif ($self->{"osversion"} eq "4.0") {
         $self->{"tcpipparams"}{"Domain"} = $domain;
@@ -366,7 +367,7 @@ sub set_dns
     # could also check number of dns servers?
 
     @dns = grep { $_ } @dns; # remove empty entries
-    if ($self->{"osversion"} eq "5.0") {
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         # available only from "tcpipadapterparams"
         $self->{"tcpipadapterparams"}{"NameServer"} = join(",", @dns);
     } elsif ($self->{"osversion"} eq "4.0") {
@@ -389,7 +390,7 @@ sub set_wins
     # could also check number of wins servers?
 
     @wins = grep { $_ } @wins; # remove empty entries
-    if ($self->{"osversion"} eq "5.0") {
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         $self->{"netbtadapter"}{"NameServerList"} = [[@wins], "REG_MULTI_SZ"];
     } elsif ($self->{"osversion"} eq "4.0") {
         $self->{"netbtadapter"}{"NameServer"} = $wins[0];
@@ -405,12 +406,12 @@ sub get_dhcp_server
         unless $self->is_dhcp_enabled;
 
     my $dhcpserver;
-    if ($self->{"osversion"} eq "5.0") {
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         # available both from "adapterparams" and "tcpipadapterparams"
-        $dhcpserver = $self->{"tcpipadapterparams"}{"DhcpServer"};
+        $dhcpserver = $self->{"tcpipadapterparams"}{"DhcpServer"} || "";
     } elsif ($self->{"osversion"} eq "4.0") {
         # available only from "adapterparams"
-        $dhcpserver = $self->{"adapterparams"}{"DhcpServer"};
+        $dhcpserver = $self->{"adapterparams"}{"DhcpServer"} || "";
     }
     return $dhcpserver;
 }
@@ -422,15 +423,22 @@ sub get_dhcp_lease_obtained_time
     croak "Adapter is not configured through DHCP"
         unless $self->is_dhcp_enabled;
 
-    my $lease_obtained_time;
-    if ($self->{"osversion"} eq "5.0") {
-        $lease_obtained_time =
-            hex($self->{"tcpipadapterparams"}{"LeaseObtainedTime"});
+    my $fmt = "%Y-%m-%d %H:%M";
+    my $lease_obtained;
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
+        if (my $time = $self->{"tcpipadapterparams"}{"LeaseObtainedTime"}) {
+            $lease_obtained = strftime($fmt, localtime hex($time));
+        } else {
+            $lease_obtained = "";
+        }
     } elsif ($self->{"osversion"} eq "4.0") {
-        $lease_obtained_time =
-            hex($self->{"adapterparams"}{"LeaseObtainedTime"});
+        if (my $time = $self->{"adapterparams"}{"LeaseObtainedTime"}) {
+            $lease_obtained = strftime($fmt, localtime hex($time));
+        } else {
+            $lease_obtained = "";
+        }
     }
-    return scalar localtime $lease_obtained_time;
+    return $lease_obtained;
 }
 
 sub get_dhcp_lease_terminates_time
@@ -440,15 +448,22 @@ sub get_dhcp_lease_terminates_time
     croak "Adapter is not configured through DHCP"
         unless $self->is_dhcp_enabled;
 
-    my $lease_terminates_time;
-    if ($self->{"osversion"} eq "5.0") {
-        $lease_terminates_time =
-            hex($self->{"tcpipadapterparams"}{"LeaseTerminatesTime"});
+    my $fmt = "%Y-%m-%d %H:%M";
+    my $lease_terminates;
+    if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
+        if (my $time = $self->{"tcpipadapterparams"}{"LeaseTerminatesTime"}) {
+            $lease_terminates = strftime($fmt, localtime hex($time));
+        } else {
+            $lease_terminates = "";
+        }
     } elsif ($self->{"osversion"} eq "4.0") {
-        $lease_terminates_time =
-            hex($self->{"adapterparams"}{"LeaseTerminatesTime"});
+        if (my $time = $self->{"adapterparams"}{"LeaseTerminatesTime"}) {
+            $lease_terminates = strftime($fmt, localtime hex($time));
+        } else {
+            $lease_terminates = "";
+        }
     }
-    return scalar localtime $lease_terminates_time;
+    return $lease_terminates;
 }
 
 sub dump
@@ -503,64 +518,41 @@ sub dump
 
 1;
 
-# What changes will require a reboot?
-#
-# Windows NT
-# Remotely set the domain, and it took effect immediately in an ipconfig.
-# Adding a dns server requires a reboot
-# Changing a wins server requires a reboot
-#
-# Windows 2000
-# A change to the primary domain on Windows 2000 requires a reboot
-# This is not necessary for changing the connection-specific domain.
-
 __END__
 
 =head1 NAME
 
-Win32::IPConfig::Adapter - Windows NT/2000 Network Adapter IP Configuration Settings
+Win32::IPConfig::Adapter - Windows NT/2000/XP Network Adapter IP Configuration Settings
 
 =head1 SYNOPSIS
 
-    use Win32::IPConfig;
+    print $adapter->get_id, "\n";
+    print $adapter->get_description, "\n";
 
-    $host = shift || "";
-    if ($ipconfig = Win32::IPConfig->new($host)) {
-        print "hostname=", $ipconfig->get_hostname, "\n";
-        print "domain=", $ipconfig->get_domain, "\n";
-        print "nodetype=", $ipconfig->get_nodetype, "\n";
-
-        for $adapter (@{$ipconfig->get_adapters}) {
-            print "\nAdapter ";
-            print $adapter->get_id, "\n";
-            print $adapter->get_description, "\n";
-
-            if ($adapter->is_dhcp_enabled) {
-                print "DHCP is enabled\n";
-            } else {
-                print "DHCP is not enabled\n";
-            }
-
-            @ipaddresses = @{$adapter->get_ipaddresses};
-            print "ipaddresses=@ipaddresses (", scalar @ipaddresses, ")\n";
-
-            @gateways = @{$adapter->get_gateways};
-            print "gateways=@gateways (", scalar @gateways, ")\n";
-
-            print "domain=", $adapter->get_domain, "\n";
-
-            @dns = @{$adapter->get_dns};
-            print "dns=@dns (", scalar @dns, ")\n";
-
-            @wins = @{$adapter->get_wins};
-            print "wins=@wins (", scalar @wins, ")\n";
-        }
+    if ($adapter->is_dhcp_enabled) {
+        print "DHCP is enabled\n";
+    } else {
+        print "DHCP is not enabled\n";
     }
+
+    @ipaddresses = @{$adapter->get_ipaddresses};
+    print "ipaddresses=@ipaddresses (", scalar @ipaddresses, ")\n";
+
+    @gateways = @{$adapter->get_gateways};
+    print "gateways=@gateways (", scalar @gateways, ")\n";
+
+    print "domain=", $adapter->get_domain, "\n";
+
+    @dns = @{$adapter->get_dns};
+    print "dns=@dns (", scalar @dns, ")\n";
+
+    @wins = @{$adapter->get_wins};
+    print "wins=@wins (", scalar @wins, ")\n";
 
 =head1 DESCRIPTION
 
 Win32::IPConfig::Adapter encapsulates the TCP/IP 
-configuration settings for a Windows NT/2000 network adapter.
+configuration settings for a Windows NT/2000/XP network adapter.
 
 =head1 METHODS
 
@@ -587,10 +579,10 @@ Returns a reference to a list of ip addresses for this adapter.
 
 =item $adapter->get_gateways
 
-Returns a reference to a list containing default gateway ip addresses. (Bet you
-didn't realise Windows NT/2000 allowed you to have multiple default gateways.)
-If no default gateways are configured, a reference to an empty list will
-be returned.
+Returns a reference to a list containing default gateway ip addresses.
+(Bet you didn't realise Windows allowed you to have multiple
+default gateways.) If no default gateways are configured, a reference
+to an empty list will be returned.
 Statically configured default gateways will override any assigned by DHCP.
 
 =item $adapter->get_domain
@@ -616,7 +608,7 @@ Statically configured WINS Servers will override any assigned by DHCP.
 
 =item $adapter->set_domain($domainsuffix)
 
-On Windows 2000, sets the connection-specific DNS suffix.
+On Windows 2000/XP, sets the connection-specific DNS suffix.
 On Windows NT, as a convenience, sets the host-specific DNS suffix.
 
 You will not be allowed to set this value if the host adapter is
@@ -635,7 +627,7 @@ You will not be allowed to set this value if the host adapter is
 configured through DHCP.
 
 On Windows NT systems, you will need to reboot for this setting to take 
-effect. On Windws 2000 systems, you will need to restart the DNS Client
+effect. On Windows 2000 systems, you will need to restart the DNS Client
 service or reboot the machine.
 
 =item $adapter->set_wins(@winsservers)
@@ -649,6 +641,28 @@ configured through DHCP.
 
 On Windows NT systems, you will need to reboot for this change to take effect.
 On Windows 2000, you also appear to need to reboot the host machine.
+
+=item $adapter->get_dhcp_server
+
+Returns the ip address of the DHCP server that supplied the adapter's
+ip address.
+
+You will only be able to read this value if the host adapter is
+configured through DHCP.
+
+=item $adapter->get_dhcp_lease_obtained_time
+
+Returns the lease obtained time in the format YYYY-MM-DD HH-MM.
+
+You will only be able to read this value if the host adapter is
+configured through DHCP.
+
+=item $adapter->get_dhcp_lease_terminates_time
+
+Returns the lease terminates time in the format YYYY-MM-DD HH-MM.
+
+You will only be able to read this value if the host adapter is
+configured through DHCP.
 
 =back
 

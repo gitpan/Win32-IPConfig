@@ -1,5 +1,21 @@
 Revision history for Perl extension Win32::IPConfig.
 
+** 0.04 2003-05-04
+
+Now tested with Windows XP. Documentation updated to reflect this.
+
+Documented the DHCP methods and fixed them to avoid failing if the
+registry key did not exist. The lease obtained and terminates times
+are now returned in the standard date format YYYY-MM-DD HH-MM.
+Methods documented and updated:
+    get_dhcp_server
+    get_dhcp_lease_obtained_time
+    get_dhcp_lease_terminates_time
+
+Moved the rather long list of registry keys into the code as comments.
+
+Added an example for the set_dns method to the Win32::IPConfig documentation.
+
 ** 0.03 2003-02-09
 
 The main change was the introduction of some set_ methods to the
