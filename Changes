@@ -1,5 +1,14 @@
 Revision history for Perl extension Win32::IPConfig.
 
+** 0.06 2004-02-08
+
+Fixed the get_adapter method of Win32::IPConfig so that it returns a single
+Win32::IPConfig::Adapter object, as documented. Bug was introduced in 0.05.
+
+Removed dependency on the POSIX::strftime function for formatting
+the time in the Win32::IPConfig::Adapter methods get_dhcp_lease_obtained_time
+and get_dhcp_lease_terminates_time.
+
 ** 0.05 2003-09-28
 
 Changed the following methods to return a list in an array context

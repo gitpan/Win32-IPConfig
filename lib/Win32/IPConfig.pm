@@ -4,7 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 use Carp;
 use Win32::TieRegistry qw/:KEY_/;
@@ -142,7 +142,7 @@ sub get_adapter
     my $self = shift;
     my $adapter_num = shift;
 
-    my $adapter = ($self->{"adapters"})[$adapter_num];
+    my $adapter = $self->{"adapters"}[$adapter_num];
     return $adapter;
 }
 

@@ -6,7 +6,6 @@ use warnings;
 
 use Carp;
 use Win32::TieRegistry qw/:KEY_/;
-use POSIX qw/strftime/;
 
 sub new
 {
@@ -467,6 +466,13 @@ sub get_dhcp_server
     return $dhcpserver;
 }
 
+sub _format_time
+{
+    my @time = localtime shift;
+    return sprintf "%04d-%02d-%02d %02d:%02d",
+        $time[5]+1900, $time[4]+1, $time[3], $time[2], $time[1];
+}
+
 sub get_dhcp_lease_obtained_time
 {
     my $self = shift;
@@ -474,17 +480,16 @@ sub get_dhcp_lease_obtained_time
     croak "Adapter is not configured through DHCP"
         unless $self->is_dhcp_enabled;
 
-    my $fmt = "%Y-%m-%d %H:%M";
     my $lease_obtained;
     if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         if (my $time = $self->{"tcpipadapterparams"}{"LeaseObtainedTime"}) {
-            $lease_obtained = strftime($fmt, localtime hex($time));
+            $lease_obtained = _format_time(hex($time));
         } else {
             $lease_obtained = "";
         }
     } elsif ($self->{"osversion"} eq "4.0") {
         if (my $time = $self->{"adapterparams"}{"LeaseObtainedTime"}) {
-            $lease_obtained = strftime($fmt, localtime hex($time));
+            $lease_obtained = _format_time(hex($time));
         } else {
             $lease_obtained = "";
         }
@@ -499,17 +504,16 @@ sub get_dhcp_lease_terminates_time
     croak "Adapter is not configured through DHCP"
         unless $self->is_dhcp_enabled;
 
-    my $fmt = "%Y-%m-%d %H:%M";
     my $lease_terminates;
     if ($self->{"osversion"} eq "5.0" || $self->{"osversion"} eq "5.1") {
         if (my $time = $self->{"tcpipadapterparams"}{"LeaseTerminatesTime"}) {
-            $lease_terminates = strftime($fmt, localtime hex($time));
+            $lease_terminates = _format_time(hex($time));
         } else {
             $lease_terminates = "";
         }
     } elsif ($self->{"osversion"} eq "4.0") {
         if (my $time = $self->{"adapterparams"}{"LeaseTerminatesTime"}) {
-            $lease_terminates = strftime($fmt, localtime hex($time));
+            $lease_terminates = _format_time(hex($time));
         } else {
             $lease_terminates = "";
         }

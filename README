@@ -26,7 +26,7 @@ This module requires the Win32::TieRegistry module.
 
 COPYRIGHT AND LICENCE
 
-Copyright (C) 2003 James Macfarlane
+Copyright (C) 2003, 2004 James Macfarlane
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself. 
