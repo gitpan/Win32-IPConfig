@@ -1,6 +1,91 @@
 Revision history for Perl extension Win32::IPConfig.
 
-** 0.01 2003-01-20
+** 0.03 2003-02-09
+
+The main change was the introduction of some set_ methods to the
+Win32::IPConfig::Adapter. Then I started refactoring to clean up
+the internal processes and moved the remote registry accesses into
+the accessor methods themselves, so now the Win32::IPConfig::Adapter
+reads information directly from the remote registry rather than
+from a cache in the Win32::IPConfig::Adapter object itself.
+
+The following methods read directly from the remote registry:
+    get_ipaddress
+    get_gateways
+    get_dns
+    get_wins
+    get_domain
+
+The following methods read from the Win32::IPConfig::Adapter cache:
+    get_id
+    get_description
+    is_dhcp_enabled
+
+The following Win32::IPConfig methods now read directly from the
+remote registry:
+    get_hostname
+    get_domain
+    get_nodetype
+
+Added the $ipconfig->get_adapter method to simplify access. Often
+the first adapter will be assumed to be the main network card, so
+now this can be quickly retrieved using $ipconfig->get_adapter(0).
+
+Added documentation for the Win32::IPConfig::Adapter methods
+get_id and get_description.
+
+Updated the documentation on the DHCP registry entries used.
+
+Addition of get_dhcp_server to adapter
+get_dhcp_lease_obtained_time
+get_dhcp_lease_terminates_time
+
+The Win32::IPConfig method get_nodetype now returns a friendly string
+(B-node, ...).
+
+I've now checked that statically configured values override DHCP
+assigned values and updated the following Win32::IPConfig::Adapter
+methods to accurately reflect this:
+    get_gateways
+    get_domain
+    get_dns
+    get_wins
+I must note that so far I have only tested this on Windows 2000.
+
+The following new Win32::IPConfig::Adapter methods were added:
+    $adapter->set_domain
+    $adapter->set_dns
+    $adapter->set_wins
+
+I tested the effects of setting the domain, DNS servers, and WINS
+servers and trying to determine when a reboot was required, and when
+settings would take effect immediately, only to be rewarded with a
+headache trying to figure these things out amongst all the variables
+involved in the Windows Name Resolution process.
+
+With $adapter->set_domain, in testing with ipconfig /all, the setting appeared
+to take effect immediately in both Windows NT and Windows 2000. However,
+testing with start \\server\share on Windows 2000 did not work successfully
+until the DNS Client was restarted.
+
+With $adapter->set_dns, the Windows NT machine needed to be rebooted for the
+change to take effect. On Windows 2000, I had to restart the DNS Client.
+
+With $adapter->set_wins, both Windows NT and 2000 needed a reboot for the
+change to take effect.
+
+Note that if you change these settings through the GUI on Windows 2000,
+you will not need to reboot the machine. But then who wants to walk around
+500 workstations doing that?
+
+Until I've managed to find Windows NT 3.51 and Windows XP machines that
+I can test this module on, I've changed the module to croak if the
+host's operating system is not Windows NT 4.0 or Windows 2000.
+
+Finally, to facilitate a lot of these changes, the registry is opened
+with read/write access instead of just read access.
+
+** 0.02 2003-01-20
 
 Discovered that some NDIS WAN Adapters on NT 4.0 do not have an
 <adapter>\Parameters\Tcpip key. Changed code to skip adapters

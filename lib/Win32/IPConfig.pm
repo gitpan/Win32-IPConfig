@@ -4,8 +4,9 @@ use 5.006;
 use strict;
 use warnings;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
+use Carp;
 use Win32::TieRegistry qw/:KEY_/;
 use Win32::IPConfig::Adapter;
 
@@ -16,35 +17,25 @@ sub new
     my $host = shift || "";
 
     my $hklm = $Registry->Connect($host, "HKEY_LOCAL_MACHINE",
-        {Access => KEY_READ})
+        {Access => KEY_READ | KEY_WRITE})
         or return undef;
 
     $hklm->SplitMultis(1); # return REG_MULTI_SZ as arrays
 
-    my $osversion = $hklm->{"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"}->{"CurrentVersion"};
+    my $osversion = $hklm->{"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\CurrentVersion"};
 
-    # Get the network parameters
-    my $services = $hklm->{"SYSTEM\\CurrentControlSet\\Services"};
-    my $tcpipparams = $services->{"Tcpip\\Parameters"};
-
-    my $self = {};
-    $self->{"domain"} = $tcpipparams->{"Domain"};
-    $self->{"hostname"} = $tcpipparams->{"Hostname"};
-
-    # Note that on 2000, you can switch between using
-    # the primary + connection-specific domains or
-    # using the searchlist. The default is to use the
-    # primary + connection-specific domains.
-    if ($osversion eq "5.0") {
-        my @searchlist = split /,/, $tcpipparams->{"SearchList"};
-        $self->{"searchlist"} = \@searchlist;
-    } else {
-        my @searchlist = split / /, $tcpipparams->{"SearchList"};
-        $self->{"searchlist"} = \@searchlist;
+    unless ($osversion eq "4.0" || $osversion eq "5.0") {
+        croak "Currently only supports Windows NT/2000";
     }
 
-    # Get the NetBT information
-    $self->{"nodetype"} = $services->{"Netbt\\Parameters\\NodeType"} || "";
+    my $services = $hklm->{"SYSTEM\\CurrentControlSet\\Services"};
+
+    my $self = {};
+    $self->{"osversion"} = $osversion;
+
+    # Remember the necessary registry keys
+    $self->{"netbtparams"} = $services->{"Netbt\\Parameters"};
+    $self->{"tcpipparams"} = $services->{"Tcpip\\Parameters"};
 
     # Retrieve each network card's config
     my $networkcards = $hklm->{"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\NetworkCards"};
@@ -54,17 +45,102 @@ sub new
         }
     }
 
-    $self->{"osversion"} = $osversion;
     bless $self, $class;
     return $self;
 }
 
 sub get_adapters { return $_[0]->{"adapters"}; }
 sub get_osversion { return $_[0]->{"osversion"}; }
-sub get_hostname { return $_[0]->{"hostname"}; }
-sub get_domain { return $_[0]->{"domain"}; }
-sub get_searchlist { return $_[0]->{"searchlist"}; }
-sub get_nodetype { return $_[0]->{"nodetype"}; }
+
+sub get_hostname
+{
+    my $self = shift;
+
+    return $self->{"tcpipparams"}{"Hostname"};
+}
+
+sub get_domain
+{
+    my $self = shift;
+
+    return $self->{"tcpipparams"}{"Domain"};
+}
+
+sub get_searchlist
+{
+    my $self = shift;
+
+    my @searchlist;
+    if ($self->{"osversion"} eq "5.0") {
+        @searchlist = split /,/, $self->{"tcpipparams"}{"SearchList"};
+    } else {
+        @searchlist = split / /, $self->{"tcpipparams"}{"SearchList"};
+    }
+    return \@searchlist;
+}
+
+sub get_nodetype
+{
+    my $self = shift;
+
+    # Got a real problem here. How can I determine whether to
+    # use DhcpNodeType or NodeType given that being DHCP enabled
+    # is a property of an adapter, not a host?
+    # So I currently settled for always reporting the statically
+    # configured NodeType setting, even though this will be invalid
+    # if there are DHCP adapters.
+
+    my %nodetypes = (1=>"B-node", 2=>"P-node", 4=>"M-node", 8=>"H-node");
+    my $nodetype;
+    if ($nodetype = $self->{"netbtparams"}{"NodeType"}) {
+        $nodetype = hex($nodetype);
+        return $nodetypes{$nodetype};
+    } else {
+        return "";
+    }
+}
+
+sub is_router
+{
+    my $self = shift;
+
+    if (my $router = $self->{"tcpipparams"}{"IPEnableRouter"}) {
+        return hex($router);
+    } else {
+        return 0; # defaults to 0
+    }
+}
+
+sub is_wins_proxy
+{
+    my $self = shift;
+
+    if (my $proxy = $self->{"netbtparams"}{"EnableProxy"}) {
+        return hex($proxy);
+    } else {
+        return 0; # defaults to 0
+    }
+}
+
+sub is_lmhosts_enabled
+{
+    my $self = shift;
+
+    if (my $lmhosts_enabled = $self->{"netbtparams"}{"EnableLMHOSTS"}) {
+        return hex($lmhosts_enabled);
+    } else {
+        return 1; # defaults to 1
+    }
+}
+
+sub get_adapter
+{
+    my $self = shift;
+    my $adapter_num = shift;
+
+    my $adapter = ${$self->{"adapters"}}[$adapter_num];
+    return $adapter;
+}
 
 sub dump
 {
@@ -74,8 +150,10 @@ sub dump
     print "domain=", $self->get_domain, "\n";
     my @searchlist = @{$self->get_searchlist};
     print "searchlist=@searchlist\n";
-    print "osversion=", $self->get_osversion, "\n";
     print "nodetype=", $self->get_nodetype, "\n";
+    print "ip routing enabled=", $self->is_router ? "Yes":"No", "\n";
+    print "wins proxy enabled=", $self->is_wins_proxy ? "Yes":"No", "\n";
+    print "LMHOSTS enabled=", $self->is_lmhosts_enabled ? "Yes":"No", "\n";
     my $i = 1;
     for (@{$self->get_adapters}) {
         print "\nCard ", $i++, ":\n";
@@ -145,9 +223,9 @@ Win32::IPConfig is a module for retrieving TCP/IP network settings from a
 Windows NT/2000 host machine. Specify the host and the module will retrieve and
 collate all the information from the specified machine's registry (using
 Win32::TieRegistry). For this module to retrieve information from a host
-machine, you must have read access to the registry on that machine.
+machine, you must have read and write access to the registry on that machine.
 
-=head1 CONSTRUCTOR
+=head1 METHODS
 
 =over 4
 
@@ -155,12 +233,6 @@ machine, you must have read access to the registry on that machine.
 
 Creates a new Win32::IPConfig object. $host is passed directly to
 Win32::TieRegistry, and can be a computer name or an IP address.
-
-=back
-
-=head1 METHODS
-
-=over 4
 
 =item $ipconfig->get_hostname
 
@@ -175,15 +247,27 @@ domain names), this is the primary domain name.
 =item $ipconfig->get_nodetype
 
 Returns the node type of the machine. Note that this is not always
-there. It will default to 
+present. It will default to 0x1 B-node if no WINS servers are configured,
+and default to 0x8 H-node if there are. The four possible node types are:
 
-    0x1 - B-node
+    B-node - resolve NetBIOS names by broadcast
+    P-node - resolve NetBIOS names using a WINS server
+    M-node - resolve NetBIOS names by broadcast, then using a WINS server
+    H-node - resolce NetBIOS names using a WINS server, then by broadcast
+
+Currently this value is only reliable on statically configured hosts.
+Do not rely on this value if you have DHCP enabled adapters.
 
 =item $ipconfig->get_adapters
 
 The real business of the module. Returns a reference to list of
-Win32::IPConfig::Adapter objects. See the following section for more
-information.
+Win32::IPConfig::Adapter objects. See the Adapter documentation
+for more information.
+
+=item $ipconfig->get_adapter($num)
+
+Returns the Win32::IPConfig::Adapter specified by $num. Use
+$ipconfig->get_adapter(0) to retrieve the first adapter.
 
 =back
 
@@ -262,6 +346,30 @@ from the new registry location.
     2000:  <adapter>\Parameters\Tcpip
     2000:  Tcpip\Parameters\Interfaces\<adapter>
 
+    Value: DhcpIPAddress (REG_SZ)
+    NT:    <adapter>\Parameters\Tcpip
+    2000:  <adapter>\Parameters\Tcpip
+    2000:  Tcpip\Parameters\Interfaces\<adapter>
+
+    Value: DhcpSubnetMask (REG_SZ)
+    NT:    <adapter>\Parameters\Tcpip
+    2000:  <adapter>\Parameters\Tcpip
+    2000:  Tcpip\Parameters\Interfaces\<adapter>
+
+    Value: DhcpDefaultGateway (REG_MULTI_SZ)
+    NT:    <adapter>\Parameters\Tcpip
+    2000:  <adapter>\Parameters\Tcpip
+    2000:  Tcpip\Parameters\Interfaces\<adapter>
+
+    Value: DhcpServer (REG_SZ)
+    NT:    <adapter>\Parameters\Tcpip
+    2000:  <adapter>\Parameters\Tcpip
+    2000:  Tcpip\Parameters\Interfaces\<adapter>
+
+    Value: IPEnableRouter (REG_DWORD)
+    NT:    Tcpip\Parameters
+    2000:  Tcpip\Parameters
+
 =head2 DNS Information
 
     Value: Hostname (REG_SZ)
@@ -276,6 +384,9 @@ from the new registry location.
     2000:  Tcpip\Parameters (primary)
     2000:  Tcpip\Parameters\Interfaces\<adapter> (connection-specific)
 
+    Value: NV Domain (REG_SZ)
+    2000:  Tcpip\Parameters
+
     Value: NameServer (REG_SZ) (a space delimited list)
     NT:    Tcpip\Parameters
     2000:  Tcpip\Parameters (although it was blank; is it used?)
@@ -284,6 +395,16 @@ from the new registry location.
     Value: SearchList (REG_SZ) (space delimited on NT, comma delimited on 2000)
     NT:    Tcpip\Parameters
     2000:  Tcpip\Parameters
+
+    Value: DhcpDomain (REG_SZ)
+    NT:    *still to be determined*
+    2000:  Tcpip\Parameters
+    2000:  Tcpip\Parameters\Interfaces\<adapter>
+
+    Value: DhcpNameServer (REG_SZ) (a space delimited list)
+    NT:    Tcpip\Parameters
+    2000:  Tcpip\Parameters (same as below)
+    2000:  Tcpip\Parameters\Interfaces\<adapter>
 
 =head2 WINS Information
 
@@ -296,6 +417,15 @@ from the new registry location.
     Value: NameServerList (REG_MULTI_SZ)
     2000:  Netbt\Parameters\Interfaces\Tcpip_<adapter>
 
+    Value: DhcpNameServer (REG_SZ)
+    NT:    Netbt\Adapters\<adapter>
+
+    Value: DhcpNameServerBackup (REG_SZ)
+    NT:    Netbt\Adapters\<adapter>
+
+    Value: DhcpNameServerList (REG_MULTI_SZ)
+    2000:  Netbt\Parameters\Interfaces\Tcpip_<adapter>
+
 Q120642 and Q314053 talk about NameServer and NameServerBackup
 existing on 2000 in the Netbt\Parameters\Interfaces\Tcpip_<adapter>
 registry key, but this appears to be wrong.
@@ -304,11 +434,43 @@ registry key, but this appears to be wrong.
     NT:    Netbt\Parameters
     2000:  Netbt\Parameters
 
+    Value: DhcpNodeType (REG_DWORD) (overidden by NodeType)
+    NT:    Netbt\Parameters
+    2000:  Netbt\Parameters
+
+    Value: EnableProxy (REG_DWORD)
+    NT:    Netbt\Parameters
+    2000:  Netbt\Parameters
+
+    Value: EnableLMHOSTS (REG_DWORD)
+    NT:    Netbt\Parameters
+    2000:  Netbt\Parameters
+
+=head1 NOTES
+
+Note that Windows 2000 will use its DNS server setting to resolve
+Windows computer names, whereas Windows NT will use its WINS server
+settings first.
+
+For Windows 2000, the primary domain, connection-specific domain
+settings are significant and will be used in this initial name 
+resolution process.
+
+The DHCP Server options correspond to the following registry values:
+
+    003 Router             -> DhcpDefaultGateway
+    006 DNS Servers        -> DhcpNameServer
+    015 DNS Domain Name    -> DhcpDomain
+    044 WINS/NBNS Servers  -> DhcpNameServer/DhcpNameServerList
+    046 WINS/NBT Node Type -> DhcpNodeType
+
 =head1 AUTHOR
 
 James Macfarlane, E<lt>jmacfarla@cpan.orgE<gt>
 
 =head1 SEE ALSO
+
+Win32::IPConfig::Adapter
 
 Win32::TieRegistry
 
