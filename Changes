@@ -1,5 +1,13 @@
 Revision history for Perl extension Win32::IPConfig.
 
+** 0.09 2006-05-25
+
+Changed the way the get_adapter method of Win32::IPConfig looks up adapter
+names to fix a problem where "Local Area Connection 2" was being returned
+when "Local Area Connection" was requested. A case-insensitive comparison
+is performed instead of using the supplied name as a regular expression.
+Thanks to Raoul Thill for pointing this problem out.
+
 ** 0.08 2004-08-13
 
 Documented the following Win32::IPConfig methods:

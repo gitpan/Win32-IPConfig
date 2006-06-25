@@ -4,7 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 
-our $VERSION = '0.08';
+our $VERSION = '0.09';
 
 use Carp;
 use Win32::TieRegistry qw/:KEY_/;
@@ -266,7 +266,7 @@ sub get_adapter
         return $adapter;
     } else {
         for my $adapter ($self->get_adapters) {
-            if ($adapter->get_name =~ m/$adapter_name_or_num/i) {
+            if (uc $adapter->get_name eq uc $adapter_name_or_num) {
                 return $adapter;
             }
         }
