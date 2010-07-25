@@ -10,9 +10,9 @@ use Win32::TieRegistry qw/:KEY_/;
 sub new
 {
     my $class = shift;
-
     my $hklm = shift; # connection to registry
     my $nic = shift;
+    my $access = shift || 'ro';
 
     # We only need to test that $id is defined because $osversion and
     # $networkcards_key have already been tested by Win32::IPConfig, and
@@ -25,6 +25,7 @@ sub new
         or return undef;
 
     my $self = {};
+    $self->{"access"} = $access;
     $self->{"osversion"} = $osversion;
     $self->{"id"} = $id;
     $self->{"description"} = $description;
@@ -47,7 +48,7 @@ sub new
     my $tcpip_params_interface_key = $tcpip_params_key->{"Interfaces\\$id\\"};
     my $netbt_params_interface_key = $netbt_params_key->{"Interfaces\\Tcpip_$id\\"};
     my $network_connection_key = $hklm->{"SYSTEM\\CurrentControlSet\\Control\\Network\\{4D36E972-E325-11CE-BFC1-08002BE10318}\\"};
-    
+
     # NT4 specific registry keys
     # HKLM\...\Services\<id>\Parameters
     # HKLM\...\Services\<id>\Parameters\Tcpip
@@ -162,7 +163,7 @@ sub get_ipaddresses
     # ipconfig did NOT show the statically assigned IP addresses overriding the
     # DHCP IP address. Additionally, pings showed that the original DHCP IP
     # address was still being used.
-    
+
     # Anyway, I still can't get my head around statically configured
     # IP addresses on an adapter that is enabled for DHCP.
 
@@ -272,7 +273,7 @@ sub _get_dhcp_gateways
 sub get_gateways
 {
     my $self = shift;
-    
+
     # statically configured gateways override dhcp assigned gateways
     my @gateways = $self->_get_static_gateways;
     if (@gateways == 0 && $self->is_dhcp_enabled) {
@@ -298,10 +299,10 @@ sub _get_static_domain
     my $key = $self->{"osversion"} >= 5.0
             ? $self->{"tcpip_params_interface_key"}
             : $self->{"tcpip_params_key"};
-    
+
     # Returns the connection-specific DNS suffix on Windows 2000 and later.
     # As a convenience, returns the host DNS suffix on Windows NT.
-    
+
     my $domain = $key->{"\\Domain"} || ""; # REG_SZ
     return $domain;
 }
@@ -320,10 +321,10 @@ sub _get_dhcp_domain
     my $key = $self->{"osversion"} >= 5.0
             ? $self->{"tcpip_params_interface_key"}
             : $self->{"tcpip_params_key"};
-    
+
     # Returns the connection-specific DNS suffix on Windows 2000 and later.
     # As a convenience, returns the host DNS suffix on Windows NT.
-    
+
     my $domain = $key->{"\\DhcpDomain"} || ""; # REG_SZ
     return $domain;
 }
@@ -565,7 +566,7 @@ sub dump
     print "\n";
 
     print "dhcp enabled=", $self->is_dhcp_enabled ? "Yes" : "No", "\n";
-    
+
     my @ipaddresses = $self->get_ipaddresses;
     print "ip addresses=@ipaddresses (", scalar @ipaddresses, ")\n";
 
@@ -607,6 +608,10 @@ sub set_domain
     # bail if dhcp enabled
     croak "Adapter is configured through DHCP" if $self->is_dhcp_enabled;
 
+    # bail if access is not read/write
+    croak "Access is read only, settings cannot be changed"
+        if $self->{"access"} ne 'rw';
+
     my $domain = shift;
     croak "Invalid Domain Name Suffix" unless $domain =~ /^[\w\.\-]+$/;
 
@@ -625,6 +630,10 @@ sub set_dns
 
     # bail if dhcp enabled
     croak "Adapter is configured through DHCP" if $self->is_dhcp_enabled;
+
+    # bail if access is not read/write
+    croak "Access is read only, settings cannot be changed"
+        if $self->{"access"} ne 'rw';
 
     my @dns = @_;
     for (@dns) {
@@ -646,6 +655,10 @@ sub set_wins
 
     # bail if dhcp enabled
     croak "Adapter is configured through DHCP" if $self->is_dhcp_enabled;
+
+    # bail if access is not read/write
+    croak "Access is read only, settings cannot be changed"
+        if $self->{"access"} ne 'rw';
 
     my @wins = @_;
     for (@wins) {
@@ -694,7 +707,7 @@ Win32::IPConfig::Adapter - Network Adapter IP Configuration Settings for Windows
             $ipconfig->is_lmhosts_enabled ? "Yes" : "No", "\n";
 
         print "DNS enabled for netbt=",
-            $ipconfig->is_dns_enabled_for_netbt ? "Yes" : "No", "\n"; 
+            $ipconfig->is_dns_enabled_for_netbt ? "Yes" : "No", "\n";
 
         foreach $adapter ($ipconfig->get_adapters) {
             print "\nAdapter '", $adapter->get_name, "':\n";
@@ -725,7 +738,7 @@ Win32::IPConfig::Adapter - Network Adapter IP Configuration Settings for Windows
 
 =head1 DESCRIPTION
 
-Win32::IPConfig::Adapter encapsulates the TCP/IP 
+Win32::IPConfig::Adapter encapsulates the TCP/IP
 configuration settings for a Windows NT/2000/XP/2003 network adapter.
 
 =head1 METHODS
@@ -859,7 +872,7 @@ service needed to be restarted or the machine rebooted.
 
 Set the host's WINS servers to @wins_servers, which should be a list of
 contactable WINS servers on the network. You can use an empty list
-to remove all configured WINS servers. 
+to remove all configured WINS servers.
 On Windows NT only the first two WINS servers will actually be set; on Windows
 2000 and later, all the WINS servers you specify will be be inserted into the
 registry.
@@ -873,12 +886,24 @@ also needed to be rebooted.
 
 =back
 
+=head1 SEE ALSO
+
+Win32::IPConfig
+
 =head1 AUTHOR
 
 James Macfarlane, E<lt>jmacfarla@cpan.orgE<gt>
 
-=head1 SEE ALSO
+=head1 COPYRIGHT AND LICENSE
 
-Win32::IPConfig
+Copyright (C) 2003,2004,2006,2010 by James Macfarlane
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself.
+
+THIS PACKAGE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS
+OR IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION,
+THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS
+FOR A PARTICULAR PURPOSE.
 
 =cut

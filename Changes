@@ -1,5 +1,14 @@
 Revision history for Perl extension Win32::IPConfig.
 
+** 0.10 2010-07-25
+
+Fixed prereq_pm in Makefile.PL to specify Win32::TieRegistry.
+
+Access to registry now defaults to read-only access, and read-write
+access needs to be explicitly requested to allow the set_domain,
+set_dns, and set_wins methods of Win32::IPConfig::Adapter to work.
+Requested by alabamapaul (who sent patches) and Santeri Paavolainen.
+
 ** 0.09 2006-05-25
 
 Changed the way the get_adapter method of Win32::IPConfig looks up adapter

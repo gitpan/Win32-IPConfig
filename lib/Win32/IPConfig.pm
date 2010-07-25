@@ -4,7 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 
-our $VERSION = '0.09';
+our $VERSION = '0.10';
 
 use Carp;
 use Win32::TieRegistry qw/:KEY_/;
@@ -13,12 +13,11 @@ use Win32::IPConfig::Adapter;
 sub new
 {
     my $class = shift;
-
     my $host = shift || "";
+    my $access = shift || "ro";
 
     my $hklm = $Registry->Connect($host, "HKEY_LOCAL_MACHINE",
-        {Access => KEY_READ | KEY_WRITE})
-        #{Access => KEY_READ})
+            { Access => $access eq 'rw' ? KEY_READ|KEY_WRITE : KEY_READ })
         or return undef;
 
     $hklm->SplitMultis(1); # return REG_MULTI_SZ as arrays
@@ -27,6 +26,7 @@ sub new
 
     my $self = {};
     $self->{"osversion"} = $osversion;
+    $self->{"access"} = $access;
 
     # Remember the necessary registry keys
     my $services_key = $hklm->{"SYSTEM\\CurrentControlSet\\Services\\"}
@@ -39,7 +39,7 @@ sub new
     # Retrieve each network card's config
     my $networkcards_key = $hklm->{"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\NetworkCards\\"} or return undef;
     for my $nic ($networkcards_key->SubKeyNames) {
-        if (my $adapter = Win32::IPConfig::Adapter->new($hklm, $nic)) {
+        if (my $adapter = Win32::IPConfig::Adapter->new($hklm, $nic, $access)) {
             push @{$self->{"adapters"}}, $adapter;
         }
     }
@@ -326,7 +326,7 @@ Win32::IPConfig - IP Configuration Settings for Windows NT/2000/XP/2003
             $ipconfig->is_lmhosts_enabled ? "Yes" : "No", "\n";
 
         print "DNS enabled for netbt=",
-            $ipconfig->is_dns_enabled_for_netbt ? "Yes" : "No", "\n"; 
+            $ipconfig->is_dns_enabled_for_netbt ? "Yes" : "No", "\n";
 
         foreach $adapter ($ipconfig->get_adapters) {
             print "\nAdapter '", $adapter->get_name, "':\n";
@@ -361,16 +361,25 @@ Win32::IPConfig is a module for retrieving TCP/IP network settings from a
 Windows NT/2000/XP/2003 host machine. Specify the host and the module will
 retrieve and collate all the information from the specified machine's registry
 (using Win32::TieRegistry). For this module to retrieve information from a host
-machine, you must have read and write access to the registry on that machine.
+machine, you must have read access to the registry on that machine.
+
+Important Note: The functionality of this module has been superseded by WMI
+(Windows Management Instrumentation).
 
 =head1 METHODS
 
 =over 4
 
-=item $ipconfig = Win32::IPConfig->new($host);
+=item $ipconfig = Win32::IPConfig->new($host, $access);
 
 Creates a new Win32::IPConfig object. $host is passed directly to
 Win32::TieRegistry, and can be a computer name or an IP address.
+
+$access should be set to 'rw' if write access is required.
+This is only necessary if you intend to use the
+set_domain, set_dns, or set_wins methods
+of the Win32::IPConfig::Adapter object.
+If $access is not set, it will default to 'ro', or read-only access.
 
 =item $ipconfig->get_hostname
 
@@ -392,7 +401,7 @@ They are only used if the initial DNS name lookup fails.
 
 =item $ipconfig->get_nodetype
 
-Returns the NetBIOS over TCP/IP node type of the machine. 
+Returns the NetBIOS over TCP/IP node type of the machine.
 The four possible node types are:
 
     B-node - resolve NetBIOS names by broadcast
@@ -457,7 +466,7 @@ addresses configured, whether manually or through DHCP.
 
 =item $ipconfig->get_adapter($name_or_num)
 
-Returns the Win32::IPConfig::Adapter specified by $name_or_num. 
+Returns the Win32::IPConfig::Adapter specified by $name_or_num.
 If you specify a string (e.g. "Local Area Connection")
 it will look for an adapter with that name,
 otherwise it will take the adapter from the list of
@@ -484,6 +493,7 @@ the target computer's name as the first command line parameter.
 It also uses the get_configured_adapters method to filter out adapters that
 do not have IP addresses.
 
+    use strict;
     use Win32::IPConfig;
 
     my $host = shift || Win32::NodeName;
@@ -584,7 +594,7 @@ from the command line.
     use Win32::IPConfig;
 
     my $host = shift or die "You must specify a host\n";
-    if (my $ipconfig = Win32::IPConfig->new($host)) {
+    if (my $ipconfig = Win32::IPConfig->new($host, 'rw')) {
         if (my $adapter = $ipconfig->get_adapter("Local Area Connection") ||
                           $ipconfig->get_adapter(0)) {
             if (! $adapter->is_dhcp_enabled) {
@@ -602,7 +612,7 @@ from the command line.
             warn "Could not find an adapter to configure\n";
         }
     } else {
-        warn "Host '$host' does not appear to be up\n";
+        warn "Host '$host' is down or you do not have Administrator access\n";
     }
 
 =head1 REGISTRY KEYS USED
@@ -617,7 +627,7 @@ HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkCards.
 Note that on Windows NT the adapter id will look like a service or driver,
 while on Windows 2000 and later it will be a GUID.
 
-There are some variations in where the 
+There are some variations in where the
 TCP/IP configuration data is stored.
 For all operating systems, the main keys are:
 
@@ -641,7 +651,7 @@ whereas Windows NT will use WINS and only use DNS if configured to do so (see
 the is_dns_enabled_for_netbt method).
 
 For Windows 2000 and later, both the primary and connection-specific domain
-settings are significant and will be used in this initial name 
+settings are significant and will be used in this initial name
 resolution process.
 
 The DHCP Server options correspond to the following registry values:
@@ -651,10 +661,6 @@ The DHCP Server options correspond to the following registry values:
     015 DNS Domain Name     ->  DhcpDomain
     044 WINS/NBNS Servers   ->  DhcpNameServer/DhcpNameServerList
     046 WINS/NBT Node Type  ->  DhcpNodeType
-
-=head1 AUTHOR
-
-James Macfarlane, E<lt>jmacfarla@cpan.orgE<gt>
 
 =head1 SEE ALSO
 
@@ -675,5 +681,21 @@ Q120642 TCP/IP and NBT Configuration Parameters for Windows 2000 or Windows NT
 Q314053 TCP/IP and NBT Configuration Parameters for Windows XP
 
 =back
+
+=head1 AUTHOR
+
+James Macfarlane, E<lt>jmacfarla@cpan.orgE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2003,2004,2006,2010 by James Macfarlane
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself.
+
+THIS PACKAGE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS
+OR IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION,
+THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS
+FOR A PARTICULAR PURPOSE.
 
 =cut
